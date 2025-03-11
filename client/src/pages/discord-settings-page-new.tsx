@@ -372,10 +372,10 @@ export default function DiscordSettingsPage() {
                   <CardFooter>
                     <Button 
                       className="ml-auto"
-                      onClick={handleSaveSettings}
-                      disabled={updateSettingsMutation.isPending}
+                      onClick={handleSaveChannelSettings}
+                      disabled={saveChannelsMutation.isPending}
                     >
-                      {updateSettingsMutation.isPending ? (
+                      {saveChannelsMutation.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
                         <Save className="mr-2 h-4 w-4" />
