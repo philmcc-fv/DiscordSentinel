@@ -3,9 +3,6 @@ import Sidebar from "@/components/dashboard/sidebar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { z } from "zod";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import {
   Card,
   CardContent,
@@ -14,15 +11,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,68 +23,43 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
 import { Loader2, Save, RotateCw } from "lucide-react";
-
-const botSettingsSchema = z.object({
-  token: z.string().min(1, "Bot token is required"),
-  guildId: z.string().min(1, "Guild ID is required"),
-  prefix: z.string().default("!"),
-  analysisFrequency: z.enum(["realtime", "hourly", "daily"]),
-  loggingEnabled: z.boolean().default(true),
-  notificationsEnabled: z.boolean().default(true),
-});
 
 export default function DiscordSettingsPage() {
   const { toast } = useToast();
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   
-  const { data: botSettings = {}, isLoading } = useQuery({
+  // Form state
+  const [token, setToken] = useState("");
+  const [guildId, setGuildId] = useState("");
+  const [prefix, setPrefix] = useState("!");
+  const [analysisFrequency, setAnalysisFrequency] = useState<string>("realtime");
+  const [loggingEnabled, setLoggingEnabled] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  
+  const { data: botSettings = {}, isLoading } = useQuery<any>({
     queryKey: ["/api/bot-settings"],
   });
   
-  const { data: monitoredChannels = [], isLoading: channelsLoading } = useQuery({
+  // Update form values when bot settings are loaded
+  useEffect(() => {
+    if (botSettings) {
+      setToken(botSettings.token || "");
+      setGuildId(botSettings.guildId || "");
+      setPrefix(botSettings.prefix || "!");
+      setAnalysisFrequency(botSettings.analysisFrequency || "realtime");
+      setLoggingEnabled(botSettings.loggingEnabled !== undefined ? botSettings.loggingEnabled : true);
+      setNotificationsEnabled(botSettings.notificationsEnabled !== undefined ? botSettings.notificationsEnabled : true);
+    }
+  }, [botSettings]);
+  
+  const { data: monitoredChannels = [], isLoading: channelsLoading } = useQuery<any[]>({
     queryKey: ["/api/monitored-channels"],
   });
 
-  const form = useForm<z.infer<typeof botSettingsSchema>>({
-    resolver: zodResolver(botSettingsSchema),
-    defaultValues: {
-      token: "",
-      guildId: "",
-      prefix: "!",
-      analysisFrequency: "realtime" as const,
-      loggingEnabled: true,
-      notificationsEnabled: true,
-    },
-  });
-
-  // Define an interface for bot settings structure
-  interface BotSettingsType {
-    token?: string;
-    guildId?: string;
-    prefix?: string;
-    analysisFrequency?: "realtime" | "hourly" | "daily";
-    loggingEnabled?: boolean;
-    notificationsEnabled?: boolean;
-  }
-
-  // Update form when data is loaded
-  useEffect(() => {
-    if (botSettings) {
-      const settings = botSettings as BotSettingsType;
-      form.reset({
-        token: settings.token || "",
-        guildId: settings.guildId || "",
-        prefix: settings.prefix || "!",
-        analysisFrequency: settings.analysisFrequency || "realtime",
-        loggingEnabled: settings.loggingEnabled ?? true,
-        notificationsEnabled: settings.notificationsEnabled ?? true,
-      });
-    }
-  }, [botSettings, form]);
-
   const updateSettingsMutation = useMutation({
-    mutationFn: async (data: z.infer<typeof botSettingsSchema>) => {
+    mutationFn: async (data: any) => {
       const res = await apiRequest("POST", "/api/bot-settings", data);
       return await res.json();
     },
@@ -116,9 +79,18 @@ export default function DiscordSettingsPage() {
     },
   });
 
-  function onSubmit(data: z.infer<typeof botSettingsSchema>) {
+  const handleSaveSettings = () => {
+    const data = {
+      token,
+      guildId,
+      prefix,
+      analysisFrequency,
+      loggingEnabled,
+      notificationsEnabled
+    };
+    
     updateSettingsMutation.mutate(data);
-  }
+  };
 
   const checkConnection = async () => {
     setIsCheckingConnection(true);
@@ -171,150 +143,107 @@ export default function DiscordSettingsPage() {
                       Configure your Discord bot connection settings
                     </CardDescription>
                   </CardHeader>
-                  <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)}>
-                      <CardContent className="space-y-4">
-                        <FormField
-                          control={form.control}
-                          name="token"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Discord Bot Token</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  {...field} 
-                                  type="password" 
-                                  placeholder="Enter your Discord bot token" 
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                The token used to authenticate your bot with Discord
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={form.control}
-                          name="guildId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Server (Guild) ID</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  {...field} 
-                                  placeholder="Enter your Discord server ID" 
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                The ID of the Discord server to monitor
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={form.control}
-                          name="prefix"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Command Prefix</FormLabel>
-                              <FormControl>
-                                <Input 
-                                  {...field} 
-                                  placeholder="!" 
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                The prefix used for bot commands
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={form.control}
-                          name="analysisFrequency"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Analysis Frequency</FormLabel>
-                              <Select 
-                                onValueChange={field.onChange} 
-                                defaultValue={field.value}
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select frequency" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  <SelectItem value="realtime">Real-time</SelectItem>
-                                  <SelectItem value="hourly">Hourly</SelectItem>
-                                  <SelectItem value="daily">Daily</SelectItem>
-                                </SelectContent>
-                              </Select>
-                              <FormDescription>
-                                How often messages should be analyzed
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        
-                        <FormField
-                          control={form.control}
-                          name="loggingEnabled"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                              <div className="space-y-0.5">
-                                <FormLabel className="text-base">Enable Logging</FormLabel>
-                                <FormDescription>
-                                  Log all bot activities for debugging
-                                </FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </CardContent>
-                      
-                      <CardFooter className="flex justify-between">
-                        <Button 
-                          type="button" 
-                          variant="outline"
-                          onClick={checkConnection}
-                          disabled={isCheckingConnection}
-                        >
-                          {isCheckingConnection ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <RotateCw className="mr-2 h-4 w-4" />
-                          )}
-                          Test Connection
-                        </Button>
-                        
-                        <Button 
-                          type="submit"
-                          disabled={updateSettingsMutation.isPending}
-                        >
-                          {updateSettingsMutation.isPending ? (
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          ) : (
-                            <Save className="mr-2 h-4 w-4" />
-                          )}
-                          Save Settings
-                        </Button>
-                      </CardFooter>
-                    </form>
-                  </Form>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="token">Discord Bot Token</Label>
+                      <Input 
+                        id="token"
+                        type="password" 
+                        placeholder="Enter your Discord bot token"
+                        value={token}
+                        onChange={(e) => setToken(e.target.value)}
+                      />
+                      <p className="text-sm text-gray-500">
+                        The token used to authenticate your bot with Discord
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="guildId">Server (Guild) ID</Label>
+                      <Input 
+                        id="guildId"
+                        placeholder="Enter your Discord server ID"
+                        value={guildId}
+                        onChange={(e) => setGuildId(e.target.value)}
+                      />
+                      <p className="text-sm text-gray-500">
+                        The ID of the Discord server to monitor
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="prefix">Command Prefix</Label>
+                      <Input 
+                        id="prefix"
+                        placeholder="!"
+                        value={prefix}
+                        onChange={(e) => setPrefix(e.target.value)}
+                      />
+                      <p className="text-sm text-gray-500">
+                        The prefix used for bot commands
+                      </p>
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="analysisFrequency">Analysis Frequency</Label>
+                      <Select 
+                        value={analysisFrequency}
+                        onValueChange={setAnalysisFrequency}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select frequency" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="realtime">Real-time</SelectItem>
+                          <SelectItem value="hourly">Hourly</SelectItem>
+                          <SelectItem value="daily">Daily</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-sm text-gray-500">
+                        How often messages should be analyzed
+                      </p>
+                    </div>
+                    
+                    <div className="flex items-center justify-between rounded-lg border p-4">
+                      <div>
+                        <Label className="text-base">Enable Logging</Label>
+                        <p className="text-sm text-gray-500">
+                          Log all bot activities for debugging
+                        </p>
+                      </div>
+                      <Switch
+                        checked={loggingEnabled}
+                        onCheckedChange={setLoggingEnabled}
+                      />
+                    </div>
+                  </CardContent>
+                  
+                  <CardFooter className="flex justify-between">
+                    <Button 
+                      variant="outline"
+                      onClick={checkConnection}
+                      disabled={isCheckingConnection}
+                    >
+                      {isCheckingConnection ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCw className="mr-2 h-4 w-4" />
+                      )}
+                      Test Connection
+                    </Button>
+                    
+                    <Button 
+                      onClick={handleSaveSettings}
+                      disabled={updateSettingsMutation.isPending}
+                    >
+                      {updateSettingsMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="mr-2 h-4 w-4" />
+                      )}
+                      Save Settings
+                    </Button>
+                  </CardFooter>
                 </Card>
               </TabsContent>
               
@@ -368,36 +297,24 @@ export default function DiscordSettingsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <Form {...form}>
-                      <form onSubmit={form.handleSubmit(onSubmit)}>
-                        <FormField
-                          control={form.control}
-                          name="notificationsEnabled"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                              <div className="space-y-0.5">
-                                <FormLabel className="text-base">Enable Notifications</FormLabel>
-                                <FormDescription>
-                                  Receive notifications for important events
-                                </FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <div className="mt-4 flex justify-end">
-                          <Button type="submit">
-                            <Save className="mr-2 h-4 w-4" />
-                            Save Notification Settings
-                          </Button>
-                        </div>
-                      </form>
-                    </Form>
+                    <div className="flex items-center justify-between rounded-lg border p-4">
+                      <div>
+                        <Label className="text-base">Enable Notifications</Label>
+                        <p className="text-sm text-gray-500">
+                          Receive notifications for important events
+                        </p>
+                      </div>
+                      <Switch
+                        checked={notificationsEnabled}
+                        onCheckedChange={setNotificationsEnabled}
+                      />
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <Button onClick={handleSaveSettings}>
+                        <Save className="mr-2 h-4 w-4" />
+                        Save Notification Settings
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               </TabsContent>
