@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/sidebar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -50,11 +50,11 @@ export default function DiscordSettingsPage() {
   const { toast } = useToast();
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   
-  const { data: botSettings, isLoading } = useQuery({
+  const { data: botSettings = {}, isLoading } = useQuery({
     queryKey: ["/api/bot-settings"],
   });
   
-  const { data: monitoredChannels, isLoading: channelsLoading } = useQuery({
+  const { data: monitoredChannels = [], isLoading: channelsLoading } = useQuery({
     queryKey: ["/api/monitored-channels"],
   });
 
@@ -70,16 +70,27 @@ export default function DiscordSettingsPage() {
     },
   });
 
+  // Define an interface for bot settings structure
+  interface BotSettingsType {
+    token?: string;
+    guildId?: string;
+    prefix?: string;
+    analysisFrequency?: "realtime" | "hourly" | "daily";
+    loggingEnabled?: boolean;
+    notificationsEnabled?: boolean;
+  }
+
   // Update form when data is loaded
-  React.useEffect(() => {
+  useEffect(() => {
     if (botSettings) {
+      const settings = botSettings as BotSettingsType;
       form.reset({
-        token: botSettings.token || "",
-        guildId: botSettings.guildId || "",
-        prefix: botSettings.prefix || "!",
-        analysisFrequency: botSettings.analysisFrequency || "realtime",
-        loggingEnabled: botSettings.loggingEnabled ?? true,
-        notificationsEnabled: botSettings.notificationsEnabled ?? true,
+        token: settings.token || "",
+        guildId: settings.guildId || "",
+        prefix: settings.prefix || "!",
+        analysisFrequency: settings.analysisFrequency || "realtime",
+        loggingEnabled: settings.loggingEnabled ?? true,
+        notificationsEnabled: settings.notificationsEnabled ?? true,
       });
     }
   }, [botSettings, form]);

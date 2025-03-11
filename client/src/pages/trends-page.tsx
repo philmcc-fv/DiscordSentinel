@@ -2,7 +2,8 @@ import { useState } from "react";
 import Sidebar from "@/components/dashboard/sidebar";
 import SentimentChart from "@/components/dashboard/sentiment-chart";
 import MessageDetailModal from "@/components/dashboard/message-detail-modal";
-import { DateRangePicker, DateRange } from "@/components/ui/date-range-picker";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 

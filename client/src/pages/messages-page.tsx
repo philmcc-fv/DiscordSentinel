@@ -26,7 +26,7 @@ export default function MessagesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSentiment, setSelectedSentiment] = useState<SentimentType | "all">("all");
   
-  const { data: channels } = useQuery({
+  const { data: channels = [] } = useQuery({
     queryKey: ["/api/channels"],
   });
 
