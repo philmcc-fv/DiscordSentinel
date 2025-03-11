@@ -2,7 +2,7 @@ import { analyzeSentiment } from './openai';
 import { storage } from './storage';
 import { SentimentType } from '@shared/schema';
 import { discordAPI } from './discord-api';
-import { Client, Events, Message, PermissionsBitField, GatewayIntentBits } from 'discord.js';
+import { Client, Events, Message, PermissionsBitField, GatewayIntentBits, NonThreadGuildBasedChannel, Guild } from 'discord.js';
 import { log } from './vite';
 
 // Define the Discord message interface for internal use
@@ -224,8 +224,9 @@ export async function startBot(token: string, guildId: string): Promise<{success
     // Check if the bot has access to text channels
     try {
       const channels = await guild.channels.fetch();
+      // Filter out null channels and only keep text channels
       const textChannels = channels.filter(channel => 
-        channel && channel.isTextBased()
+        channel !== null && channel.isTextBased()
       );
       
       if (textChannels.size === 0) {
@@ -237,11 +238,13 @@ export async function startBot(token: string, guildId: string): Promise<{success
       
       // Count text channels that the bot can actually access
       let accessibleCount = 0;
-      for (const [id, channel] of textChannels) {
-        if (channel.permissionsFor(client.user.id)?.has(PermissionsBitField.Flags.ViewChannel)) {
+      
+      // Use Array.from to convert Collection to array for iteration
+      Array.from(textChannels.entries()).forEach(([id, channel]) => {
+        if (client.user && channel && channel.permissionsFor(client.user.id)?.has(PermissionsBitField.Flags.ViewChannel)) {
           accessibleCount++;
         }
-      }
+      });
       
       if (accessibleCount === 0) {
         return {
