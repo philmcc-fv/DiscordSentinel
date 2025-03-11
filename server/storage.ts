@@ -21,9 +21,16 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, sql, desc, between, gte, lte, count } from "drizzle-orm";
+import postgres from "postgres";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { format, subDays, startOfDay, endOfDay } from "date-fns";
+
+// Create a postgres client for direct query execution
+const pgClient = postgres(process.env.DATABASE_URL!, { 
+  ssl: 'require',
+  max: 5, // Connection pool size
+});
 
 const PostgresSessionStore = connectPgSimple(session);
 
@@ -285,25 +292,35 @@ export class DatabaseStorage implements IStorage {
 
   // User exclusion management
   async getExcludedUsers(guildId: string): Promise<ExcludedUser[]> {
-    return db
-      .select()
-      .from(excludedUsers)
-      .where(eq(excludedUsers.guildId, guildId))
-      .orderBy(excludedUsers.username);
+    // Use direct SQL query to get excluded users
+    const query = `
+      SELECT 
+        id, 
+        user_id as "userId", 
+        guild_id as "guildId", 
+        username, 
+        reason, 
+        created_at as "createdAt"
+      FROM excluded_users
+      WHERE guild_id = $1
+      ORDER BY username
+    `;
+    
+    const result = await pgClient(query, [guildId]);
+    return result;
   }
 
   async isUserExcluded(userId: string, guildId: string): Promise<boolean> {
-    const [user] = await db
-      .select()
-      .from(excludedUsers)
-      .where(
-        and(
-          eq(excludedUsers.userId, userId),
-          eq(excludedUsers.guildId, guildId)
-        )
-      );
+    // Use direct SQL query to check if user is excluded
+    const query = `
+      SELECT 1
+      FROM excluded_users
+      WHERE user_id = $1 AND guild_id = $2
+      LIMIT 1
+    `;
     
-    return !!user;
+    const result = await pgClient(query, [userId, guildId]);
+    return result.length > 0;
   }
 
   async excludeUser(userData: InsertExcludedUser): Promise<ExcludedUser> {
@@ -315,14 +332,14 @@ export class DatabaseStorage implements IStorage {
         RETURNING id, user_id as "userId", guild_id as "guildId", username, reason, created_at as "createdAt"
       `;
       
-      const { rows } = await sql.query(query, [
+      const result = await pgClient(query, [
         userData.userId,
         userData.guildId,
         userData.username,
         userData.reason || null
       ]);
       
-      return rows[0];
+      return result[0];
     } catch (error) {
       // If there's a duplicate, just return the existing user
       if (error instanceof Error && error.message.includes('duplicate key')) {
@@ -332,22 +349,21 @@ export class DatabaseStorage implements IStorage {
           WHERE user_id = $1 AND guild_id = $2
         `;
         
-        const { rows } = await sql.query(query, [userData.userId, userData.guildId]);
-        return rows[0];
+        const result = await pgClient(query, [userData.userId, userData.guildId]);
+        return result[0];
       }
       throw error;
     }
   }
 
   async removeExcludedUser(userId: string, guildId: string): Promise<void> {
-    await db
-      .delete(excludedUsers)
-      .where(
-        and(
-          eq(excludedUsers.userId, userId),
-          eq(excludedUsers.guildId, guildId)
-        )
-      );
+    // Use direct SQL to delete the excluded user record
+    const query = `
+      DELETE FROM excluded_users
+      WHERE user_id = $1 AND guild_id = $2
+    `;
+    
+    await pgClient(query, [userId, guildId]);
   }
 
   // Bot settings
