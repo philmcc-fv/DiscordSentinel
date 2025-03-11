@@ -290,9 +290,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { token, guildId } = allSettings[0];
       
       // Start the bot
-      const success = await startBot(token, guildId);
+      const result = await startBot(token, guildId);
       
-      if (success) {
+      if (result.success) {
         // Set up message listeners
         setupMessageListeners(discordAPI.getClient());
         
@@ -302,9 +302,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           isActive: true
         });
         
-        res.json({ success: true, message: "Discord bot started successfully" });
+        res.json({ 
+          success: true, 
+          message: result.message || "Discord bot started successfully" 
+        });
       } else {
-        res.status(500).json({ success: false, message: "Failed to start Discord bot" });
+        res.status(500).json({ 
+          success: false, 
+          message: result.message || "Failed to start Discord bot"
+        });
       }
     } catch (error) {
       console.error("Error starting Discord bot:", error);

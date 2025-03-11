@@ -97,9 +97,24 @@ export default function DiscordSettingsPage() {
           description: result.message || "The bot is connected to Discord successfully.",
         });
       } else {
+        // Show detailed error message with guidance
+        const errorDescription = result.message || "Could not connect to Discord";
+        let helpText = "";
+        
+        // Add specific guidance based on error patterns
+        if (errorDescription.includes("Unknown Guild")) {
+          helpText = " Please verify your server ID and ensure the bot has been added to this server.";
+        } else if (errorDescription.includes("permission") || errorDescription.includes("access")) {
+          helpText = " Make sure the bot has the necessary permissions in your Discord server.";
+        } else if (errorDescription.includes("token") || errorDescription.includes("authentication")) {
+          helpText = " Please check that your bot token is correct and valid.";
+        } else {
+          helpText = " Please check your settings and try again.";
+        }
+        
         toast({
           title: "Connection failed",
-          description: result.message || "Could not connect to Discord. Please check your settings.",
+          description: errorDescription + helpText,
           variant: "destructive",
         });
       }
@@ -195,10 +210,20 @@ export default function DiscordSettingsPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/bot/settings"] });
-      toast({
-        title: "Bot started",
-        description: data.message || "The Discord bot has been started successfully.",
-      });
+      
+      if (data.success) {
+        toast({
+          title: "Bot started",
+          description: data.message || "The Discord bot has been started successfully.",
+        });
+      } else {
+        // Handle API response with success: false
+        toast({
+          title: "Failed to start bot",
+          description: data.message || "Could not start the Discord bot. Please check your settings.",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -228,10 +253,19 @@ export default function DiscordSettingsPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/bot/settings"] });
-      toast({
-        title: "Bot stopped",
-        description: data.message || "The Discord bot has been stopped successfully.",
-      });
+      
+      if (data.success) {
+        toast({
+          title: "Bot stopped",
+          description: data.message || "The Discord bot has been stopped successfully.",
+        });
+      } else {
+        toast({
+          title: "Failed to stop bot",
+          description: data.message || "Could not stop the Discord bot. Please check your settings.",
+          variant: "destructive",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({
