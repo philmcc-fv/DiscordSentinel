@@ -87,15 +87,25 @@ export default function DiscordSettingsPage() {
   const checkConnection = async () => {
     setIsCheckingConnection(true);
     try {
-      await apiRequest("POST", "/api/bot/check-connection");
-      toast({
-        title: "Connection successful",
-        description: "The bot is connected to Discord successfully.",
-      });
+      const response = await apiRequest("POST", "/api/bot/check-connection");
+      const result = await response.json();
+      
+      if (result.success) {
+        toast({
+          title: "Connection successful",
+          description: result.message || "The bot is connected to Discord successfully.",
+        });
+      } else {
+        toast({
+          title: "Connection failed",
+          description: result.message || "Could not connect to Discord. Please check your settings.",
+          variant: "destructive",
+        });
+      }
     } catch (error) {
       toast({
         title: "Connection failed",
-        description: "Could not connect to Discord. Please check your settings.",
+        description: error instanceof Error ? error.message : "Could not connect to Discord. Please check your settings.",
         variant: "destructive",
       });
     } finally {

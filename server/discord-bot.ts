@@ -1,10 +1,11 @@
 import { analyzeSentiment } from './openai';
 import { storage } from './storage';
 import { SentimentType } from '@shared/schema';
+import { discordAPI } from './discord-api';
+import { Client, Events, Message } from 'discord.js';
+import { log } from './vite';
 
-// This file would normally contain a Discord.js client implementation
-// For this project, we'll simulate the Discord message processing functionality
-
+// Define the Discord message interface for internal use
 export interface DiscordMessage {
   id: string;
   channelId: string;
@@ -14,6 +15,9 @@ export interface DiscordMessage {
   createdAt: Date;
 }
 
+/**
+ * Process a Discord message by analyzing sentiment and storing it in the database
+ */
 export async function processMessage(message: DiscordMessage): Promise<void> {
   try {
     // Skip messages that are too short to analyze meaningfully
@@ -42,46 +46,79 @@ export async function processMessage(message: DiscordMessage): Promise<void> {
       createdAt: message.createdAt,
     });
 
-    console.log(`Processed message ${message.id} with sentiment: ${analysis.sentiment}`);
+    log(`Processed message ${message.id} with sentiment: ${analysis.sentiment}`);
   } catch (error) {
-    console.error('Error processing Discord message:', error);
+    log(`Error processing Discord message: ${error instanceof Error ? error.message : String(error)}`, 'error');
   }
 }
 
-// In a real implementation, you would initialize the Discord client here
-// and set up event listeners for messages
-/*
-Example:
+/**
+ * Set up message processing on the Discord client
+ */
+export function setupMessageListeners(client: Client): void {
+  client.on(Events.MessageCreate, async (message: Message) => {
+    // Skip bot messages
+    if (message.author.bot) return;
 
-import { Client, GatewayIntentBits } from 'discord.js';
+    try {
+      // Check if we should process this message from bot settings
+      const channel = message.channel;
+      if (!channel || !channel.id) return;
+      
+      // Get the guild ID
+      const guildId = message.guild?.id;
+      if (!guildId) return;
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-});
+      // Get bot settings for this guild
+      const settings = await storage.getBotSettings(guildId);
+      if (!settings || !settings.isActive) return;
 
-client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag}`);
-});
+      // If monitor all channels is false, check if the specific channel is monitored
+      if (!settings.monitorAllChannels) {
+        const isMonitored = await storage.isChannelMonitored(channel.id);
+        if (!isMonitored) return;
+      }
 
-client.on('messageCreate', async (message) => {
-  // Skip bot messages
-  if (message.author.bot) return;
-
-  await processMessage({
-    id: message.id,
-    channelId: message.channel.id,
-    userId: message.author.id,
-    username: message.author.username,
-    content: message.content,
-    createdAt: message.createdAt,
+      // Process the message
+      await processMessage({
+        id: message.id,
+        channelId: channel.id,
+        userId: message.author.id,
+        username: message.author.username,
+        content: message.content,
+        createdAt: message.createdAt,
+      });
+    } catch (error) {
+      log(`Error in message event handler: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
   });
-});
 
-export function startBot(token: string) {
-  client.login(token);
+  log('Discord message listeners set up successfully');
 }
-*/
+
+/**
+ * Start the Discord bot with the provided token
+ */
+export async function startBot(token: string, guildId: string): Promise<boolean> {
+  try {
+    // Use the discord API service to initialize the client
+    const initialized = await discordAPI.initialize(token);
+    if (!initialized) {
+      log('Failed to initialize Discord client', 'error');
+      return false;
+    }
+
+    // Ensure the bot has access to the specified guild
+    const guild = await discordAPI.getGuild(guildId);
+    if (!guild) {
+      log(`Discord bot initialized but cannot access guild ${guildId}`, 'error');
+      return false;
+    }
+
+    log(`Discord bot successfully started and connected to guild: ${guild.name}`);
+    return true;
+  } catch (error) {
+    log(`Error starting Discord bot: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    return false;
+  }
+}

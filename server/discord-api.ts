@@ -1,10 +1,11 @@
-import { Client, GatewayIntentBits, Collection, Guild, GuildChannel, Channel, TextChannel } from 'discord.js';
+import { Client, GatewayIntentBits, Collection, Guild, GuildChannel, Channel, TextChannel, Events } from 'discord.js';
 import { log } from './vite';
 
 class DiscordAPI {
   private client: Client;
   private isInitialized: boolean = false;
   private token: string | null = null;
+  private hasSetupListeners: boolean = false;
 
   constructor() {
     this.client = new Client({
@@ -15,12 +16,18 @@ class DiscordAPI {
       ]
     });
 
-    this.client.on('ready', () => {
+    this.client.on(Events.ClientReady, () => {
       log(`Discord bot logged in as ${this.client.user?.tag}`);
       this.isInitialized = true;
+      
+      // Set up message listeners if we haven't already
+      if (!this.hasSetupListeners) {
+        // We'll set this up from the bot module to avoid circular dependencies
+        this.hasSetupListeners = true;
+      }
     });
 
-    this.client.on('error', (error) => {
+    this.client.on(Events.Error, (error) => {
       log(`Discord client error: ${error instanceof Error ? error.message : String(error)}`, 'error');
       this.isInitialized = false;
     });
@@ -35,6 +42,7 @@ class DiscordAPI {
     try {
       if (this.client.isReady()) {
         await this.client.destroy();
+        this.hasSetupListeners = false;
       }
 
       this.token = token;
@@ -44,6 +52,10 @@ class DiscordAPI {
       log(`Failed to initialize Discord client: ${error instanceof Error ? error.message : String(error)}`, 'error');
       return false;
     }
+  }
+
+  getClient(): Client {
+    return this.client;
   }
 
   async getGuild(guildId: string): Promise<Guild | null> {
