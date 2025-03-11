@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
@@ -6,6 +6,7 @@ import { processMessage, startBot, setupMessageListeners } from "./discord-bot";
 import { format, subDays, parseISO } from "date-fns";
 import { discordAPI } from "./discord-api";
 import { log } from "./vite";
+import { analyzeSentiment } from "./openai";
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -613,6 +614,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log(`Error restarting Discord bot: ${errorMessage}`, 'error');
       res.status(500).json({ error: `Failed to restart Discord bot: ${errorMessage}` });
+    }
+  });
+  
+  // Test sentiment analysis (for development/debugging only)
+  app.post("/api/test/analyze-sentiment", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { message } = req.body;
+      
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Missing or invalid message text" });
+      }
+      
+      const analysis = await analyzeSentiment(message);
+      
+      // Log the test for monitoring purposes
+      log(`TEST: Analyzed sentiment for message: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}"`, 'debug');
+      log(`TEST: OpenAI sentiment result: ${analysis.sentiment} (score: ${analysis.score}, confidence: ${analysis.confidence})`, 'debug');
+      
+      return res.json({
+        message,
+        analysis
+      });
+    } catch (error) {
+      console.error("Error in test sentiment analysis:", error);
+      res.status(500).json({ 
+        error: error instanceof Error ? error.message : "Failed to analyze sentiment",
+        message: req.body.message
+      });
     }
   });
 

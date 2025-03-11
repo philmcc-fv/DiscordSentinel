@@ -22,31 +22,42 @@ export async function processMessage(message: DiscordMessage): Promise<void> {
   try {
     // Skip messages that are too short to analyze meaningfully
     if (message.content.length < 3) {
+      log(`Skipping message ${message.id} - too short for analysis`, 'debug');
       return;
     }
 
     // Check if the channel is being monitored
     const isMonitored = await storage.isChannelMonitored(message.channelId);
     if (!isMonitored) {
+      log(`Skipping message ${message.id} - channel ${message.channelId} is not monitored`, 'debug');
       return;
     }
 
+    log(`Analyzing sentiment for message: "${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}"`, 'debug');
+    
     // Analyze sentiment using OpenAI
-    const analysis = await analyzeSentiment(message.content);
+    try {
+      const analysis = await analyzeSentiment(message.content);
+      
+      log(`OpenAI sentiment result: ${analysis.sentiment} (score: ${analysis.score}, confidence: ${analysis.confidence})`, 'debug');
 
-    // Store the message with its sentiment analysis
-    await storage.createDiscordMessage({
-      messageId: message.id,
-      channelId: message.channelId,
-      userId: message.userId,
-      username: message.username,
-      content: message.content,
-      sentiment: analysis.sentiment as SentimentType,
-      sentimentScore: analysis.score,
-      createdAt: message.createdAt,
-    });
+      // Store the message with its sentiment analysis
+      await storage.createDiscordMessage({
+        messageId: message.id,
+        channelId: message.channelId,
+        userId: message.userId,
+        username: message.username,
+        content: message.content,
+        sentiment: analysis.sentiment as SentimentType,
+        sentimentScore: analysis.score,
+        createdAt: message.createdAt,
+      });
 
-    log(`Processed message ${message.id} with sentiment: ${analysis.sentiment}`);
+      log(`Successfully processed and stored message ${message.id} with sentiment: ${analysis.sentiment}`);
+    } catch (apiError) {
+      log(`OpenAI API error during sentiment analysis: ${apiError instanceof Error ? apiError.message : String(apiError)}`, 'error');
+      // Don't throw here, we've logged the error and want to continue processing other messages
+    }
   } catch (error) {
     log(`Error processing Discord message: ${error instanceof Error ? error.message : String(error)}`, 'error');
   }
