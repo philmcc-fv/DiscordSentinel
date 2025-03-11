@@ -148,7 +148,18 @@ export async function startBot(token: string, guildId: string): Promise<{success
         message: "Bot connected to Discord but could not access the specified server. Common issues: 1) The server ID is incorrect 2) The bot hasn't been invited to the server 3) The bot doesn't have required permissions"
       };
     }
-
+    
+    // Check if the bot has the MESSAGE_CONTENT intent, which is crucial for monitoring messages
+    const client = discordAPI.getClient();
+    if (!client.options.intents.has(GatewayIntentBits.MessageContent)) {
+      log(`Warning: The bot does not have the MESSAGE_CONTENT intent enabled, which is required to read message content`, 'error');
+      
+      return {
+        success: false,
+        message: "Bot connected but is missing the MESSAGE_CONTENT intent which is required to read message content. Go to Discord Developer Portal, select your application, go to the Bot section, and enable the 'Message Content Intent'."
+      };
+    }
+    
     // Check if the bot has access to text channels
     try {
       const channels = await guild.channels.fetch();

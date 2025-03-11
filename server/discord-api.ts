@@ -79,13 +79,42 @@ class DiscordAPI {
   }
 
   async getGuild(guildId: string): Promise<Guild | null> {
-    if (!this.isInitialized) return null;
+    if (!this.isInitialized) {
+      log(`Cannot get guild: Discord API not initialized`, 'error');
+      return null;
+    }
 
     try {
+      if (!this.client.isReady()) {
+        log(`Waiting for client to be ready before fetching guild...`, 'debug');
+        // Wait for the client to be ready
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      log(`Attempting to fetch guild with ID: ${guildId}`, 'debug');
+      
+      // First check if the guild is in the client's cache
+      const cachedGuild = this.client.guilds.cache.get(guildId);
+      if (cachedGuild) {
+        log(`Found guild in cache: ${cachedGuild.name}`, 'debug');
+        return cachedGuild;
+      }
+      
+      log(`Guild not in cache, fetching from Discord API...`, 'debug');
       const guild = await this.client.guilds.fetch(guildId);
+      
+      log(`Successfully fetched guild: ${guild.name}`, 'debug');
       return guild;
     } catch (error) {
       log(`Error fetching guild: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      
+      // Check if it's a permission issue
+      if (error instanceof Error && error.message.includes("Missing Access")) {
+        log(`Permission error: The bot doesn't have access to this guild. Make sure it's been invited with proper permissions.`, 'error');
+      } else if (error instanceof Error && error.message.includes("Unknown Guild")) {
+        log(`Guild not found: The guild ID ${guildId} is invalid or the bot has not been invited to this server.`, 'error');
+      }
+      
       return null;
     }
   }

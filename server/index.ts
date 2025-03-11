@@ -72,19 +72,44 @@ app.use((req, res, next) => {
     
     // Initialize the Discord bot if there are settings available
     try {
+      // Always fetch the most recent settings
       const allSettings = await storage.getAllBotSettings();
+      
       if (allSettings.length > 0 && allSettings[0].token && allSettings[0].guildId && allSettings[0].isActive) {
         const { token, guildId } = allSettings[0];
         
         log(`Initializing Discord bot for guild ${guildId}`);
-        const success = await startBot(token, guildId);
         
-        if (success) {
+        // Try to connect to the guild
+        const result = await startBot(token, guildId);
+        
+        if (result.success) {
           // Set up message listeners
           setupMessageListeners(discordAPI.getClient());
           log('Discord bot successfully initialized and listening for messages');
         } else {
-          log('Discord bot failed to initialize', 'error');
+          log(`Discord bot failed to initialize: ${result.message}`, 'error');
+          
+          // Check if we have other guild settings that might work
+          log('Checking for alternative guild settings...', 'debug');
+          
+          if (allSettings.length > 1) {
+            // Try the next guild in the settings
+            for (let i = 1; i < allSettings.length; i++) {
+              const altSettings = allSettings[i];
+              if (altSettings.token && altSettings.guildId && altSettings.isActive) {
+                log(`Trying alternate guild: ${altSettings.guildId}`, 'debug');
+                const altResult = await startBot(altSettings.token, altSettings.guildId);
+                
+                if (altResult.success) {
+                  // Set up message listeners
+                  setupMessageListeners(discordAPI.getClient());
+                  log(`Discord bot initialized with alternate guild ${altSettings.guildId} and listening for messages`);
+                  break;
+                }
+              }
+            }
+          }
         }
       } else {
         log('Discord bot not initialized: No active bot settings found');
