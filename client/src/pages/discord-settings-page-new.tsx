@@ -276,6 +276,39 @@ export default function DiscordSettingsPage() {
     });
   };
   
+  // Fetch historical messages mutation
+  const [fetchingHistoryForChannel, setFetchingHistoryForChannel] = useState<string | null>(null);
+  
+  const fetchHistoricalMessagesMutation = useMutation({
+    mutationFn: async (channelId: string) => {
+      const res = await apiRequest("POST", "/api/channels/fetch-history", { channelId });
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Historical messages fetch initiated",
+        description: data.message || "The process may take several minutes depending on message volume.",
+      });
+      // No need to invalidate queries since the data will be updated in the background
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to fetch historical messages",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const handleFetchHistory = (channelId: string) => {
+    setFetchingHistoryForChannel(channelId);
+    fetchHistoricalMessagesMutation.mutate(channelId, {
+      onSettled: () => {
+        setFetchingHistoryForChannel(null);
+      }
+    });
+  };
+
   // Stop bot mutation
   const [isStoppingBot, setIsStoppingBot] = useState(false);
   
@@ -604,19 +637,38 @@ export default function DiscordSettingsPage() {
                         <div className="space-y-4">
                           {monitoredChannels && monitoredChannels.length > 0 ? (
                             monitoredChannels.map((channel: any) => (
-                              <div key={channel.id} className="flex items-center space-x-2 p-2 border rounded">
-                                <Checkbox 
-                                  id={`channel-${channel.id}`}
-                                  disabled={monitorAllChannels}
-                                  checked={selectedChannels.includes(channel.channelId)}
-                                  onCheckedChange={() => toggleChannelSelection(channel.channelId)}
-                                />
-                                <label
-                                  htmlFor={`channel-${channel.id}`}
-                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                >
-                                  #{channel.name}
-                                </label>
+                              <div key={channel.id} className="flex items-center justify-between space-x-2 p-2 border rounded">
+                                <div className="flex items-center gap-2">
+                                  <Checkbox 
+                                    id={`channel-${channel.id}`}
+                                    disabled={monitorAllChannels}
+                                    checked={selectedChannels.includes(channel.channelId)}
+                                    onCheckedChange={() => toggleChannelSelection(channel.channelId)}
+                                  />
+                                  <label
+                                    htmlFor={`channel-${channel.id}`}
+                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                  >
+                                    #{channel.name}
+                                  </label>
+                                </div>
+                                {selectedChannels.includes(channel.channelId) && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="px-2 h-7 text-xs"
+                                    onClick={() => handleFetchHistory(channel.channelId)}
+                                    disabled={fetchingHistoryForChannel === channel.channelId || !botSettings?.isActive}
+                                    title={!botSettings?.isActive ? "Start the bot first to fetch historical messages" : "Fetch and analyze historical messages"}
+                                  >
+                                    {fetchingHistoryForChannel === channel.channelId ? (
+                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                    ) : (
+                                      <RotateCw className="h-3 w-3 mr-1" />
+                                    )}
+                                    {fetchingHistoryForChannel === channel.channelId ? "Fetching..." : "Fetch History"}
+                                  </Button>
+                                )}
                               </div>
                             ))
                           ) : (
