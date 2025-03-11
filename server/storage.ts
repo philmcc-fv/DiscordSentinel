@@ -292,78 +292,91 @@ export class DatabaseStorage implements IStorage {
 
   // User exclusion management
   async getExcludedUsers(guildId: string): Promise<ExcludedUser[]> {
-    // Use direct SQL query to get excluded users
-    const query = `
-      SELECT 
-        id, 
-        user_id as "userId", 
-        guild_id as "guildId", 
-        username, 
-        reason, 
-        created_at as "createdAt"
-      FROM excluded_users
-      WHERE guild_id = $1
-      ORDER BY username
-    `;
+    // Let's try using the Drizzle ORM directly
+    const result = await db
+      .select()
+      .from(excludedUsers)
+      .where(eq(excludedUsers.guildId, guildId))
+      .orderBy(excludedUsers.username)
+      .execute();
     
-    const result = await pgClient(query, [guildId]);
-    return result;
+    // Transform from db schema format to API format with proper casing
+    return result.map(row => ({
+      id: row.id,
+      userId: row.userId,
+      guildId: row.guildId,
+      username: row.username,
+      reason: row.reason,
+      createdAt: row.createdAt
+    }));
   }
 
   async isUserExcluded(userId: string, guildId: string): Promise<boolean> {
-    // Use direct SQL query to check if user is excluded
-    const query = `
-      SELECT 1
-      FROM excluded_users
-      WHERE user_id = $1 AND guild_id = $2
-      LIMIT 1
-    `;
+    // Use Drizzle ORM
+    const result = await db
+      .select({ id: excludedUsers.id })
+      .from(excludedUsers)
+      .where(
+        and(
+          eq(excludedUsers.userId, userId),
+          eq(excludedUsers.guildId, guildId)
+        )
+      )
+      .limit(1)
+      .execute();
     
-    const result = await pgClient(query, [userId, guildId]);
     return result.length > 0;
   }
 
   async excludeUser(userData: InsertExcludedUser): Promise<ExcludedUser> {
     try {
-      // Convert to snake_case for the raw SQL query
-      const query = `
-        INSERT INTO excluded_users (user_id, guild_id, username, reason)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, user_id as "userId", guild_id as "guildId", username, reason, created_at as "createdAt"
-      `;
+      // Use Drizzle ORM to insert
+      const [result] = await db
+        .insert(excludedUsers)
+        .values({
+          userId: userData.userId,
+          guildId: userData.guildId,
+          username: userData.username,
+          reason: userData.reason || null,
+          createdAt: new Date()
+        })
+        .returning()
+        .execute();
       
-      const result = await pgClient(query, [
-        userData.userId,
-        userData.guildId,
-        userData.username,
-        userData.reason || null
-      ]);
-      
-      return result[0];
+      return result;
     } catch (error) {
       // If there's a duplicate, just return the existing user
       if (error instanceof Error && error.message.includes('duplicate key')) {
-        const query = `
-          SELECT id, user_id as "userId", guild_id as "guildId", username, reason, created_at as "createdAt"
-          FROM excluded_users
-          WHERE user_id = $1 AND guild_id = $2
-        `;
+        const [existingUser] = await db
+          .select()
+          .from(excludedUsers)
+          .where(
+            and(
+              eq(excludedUsers.userId, userData.userId),
+              eq(excludedUsers.guildId, userData.guildId)
+            )
+          )
+          .execute();
         
-        const result = await pgClient(query, [userData.userId, userData.guildId]);
-        return result[0];
+        return existingUser;
       }
+      
+      console.error('Error excluding user:', error);
       throw error;
     }
   }
 
   async removeExcludedUser(userId: string, guildId: string): Promise<void> {
-    // Use direct SQL to delete the excluded user record
-    const query = `
-      DELETE FROM excluded_users
-      WHERE user_id = $1 AND guild_id = $2
-    `;
-    
-    await pgClient(query, [userId, guildId]);
+    // Use Drizzle ORM to delete
+    await db
+      .delete(excludedUsers)
+      .where(
+        and(
+          eq(excludedUsers.userId, userId),
+          eq(excludedUsers.guildId, guildId)
+        )
+      )
+      .execute();
   }
 
   // Bot settings
