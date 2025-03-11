@@ -142,22 +142,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get channels for this guild
       const channels = await storage.getChannels();
+      const monitoredChannelIds = await storage.getMonitoredChannels(guildId);
+      
       if (channels.length === 0) {
         // If real channels can't be fetched, create a temporary one for testing
         if (process.env.NODE_ENV !== 'production') {
           const testChannels = [
-            { id: 1, channelId: 'test-channel-1', name: 'general', guildId, guildName: 'Your Server' },
-            { id: 2, channelId: 'test-channel-2', name: 'announcements', guildId, guildName: 'Your Server' },
-            { id: 3, channelId: 'test-channel-3', name: 'random', guildId, guildName: 'Your Server' }
+            { id: 1, channelId: 'test-channel-1', name: 'general', guildId, guildName: 'Your Server', isMonitored: monitoredChannelIds.includes('test-channel-1') },
+            { id: 2, channelId: 'test-channel-2', name: 'announcements', guildId, guildName: 'Your Server', isMonitored: monitoredChannelIds.includes('test-channel-2') },
+            { id: 3, channelId: 'test-channel-3', name: 'random', guildId, guildName: 'Your Server', isMonitored: monitoredChannelIds.includes('test-channel-3') }
           ];
           return res.json(testChannels);
         }
       }
       
-      res.json(channels);
+      // Add isMonitored property to each channel
+      const enhancedChannels = channels.map(channel => ({
+        ...channel,
+        isMonitored: monitoredChannelIds.includes(channel.channelId)
+      }));
+      
+      res.json(enhancedChannels);
     } catch (error) {
       console.error("Error fetching monitored channels:", error);
       res.status(500).json({ error: "Failed to fetch monitored channels" });
+    }
+  });
+  
+  // GET which channels are being monitored
+  app.get("/api/monitored-channels/:guildId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const guildId = req.params.guildId;
+      if (!guildId) {
+        return res.status(400).json({ error: "Guild ID is required" });
+      }
+      
+      const monitoredChannelIds = await storage.getMonitoredChannels(guildId);
+      res.json(monitoredChannelIds);
+    } catch (error) {
+      console.error("Error fetching monitored channel IDs:", error);
+      res.status(500).json({ error: "Failed to fetch monitored channel IDs" });
     }
   });
 

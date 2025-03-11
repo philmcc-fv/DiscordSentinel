@@ -24,6 +24,7 @@ export default function DiscordSettingsPage() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [monitorAllChannels, setMonitorAllChannels] = useState(false);
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   
   // Load bot settings
   const { data: botSettings, isLoading } = useQuery<any>({
@@ -47,6 +48,18 @@ export default function DiscordSettingsPage() {
       setMonitorAllChannels(botSettings.monitorAllChannels !== undefined ? botSettings.monitorAllChannels : false);
     }
   }, [botSettings]);
+  
+  // Initialize selectedChannels when channels are loaded
+  useEffect(() => {
+    if (monitoredChannels && monitoredChannels.length > 0) {
+      // Extract channels that are monitored (have isMonitored === true)
+      const selectedIds = monitoredChannels
+        .filter((channel: any) => channel.isMonitored)
+        .map((channel: any) => channel.channelId);
+      
+      setSelectedChannels(selectedIds);
+    }
+  }, [monitoredChannels]);
   
   // Save settings mutation
   const updateSettingsMutation = useMutation({
@@ -90,6 +103,61 @@ export default function DiscordSettingsPage() {
     }
   };
   
+  // Toggle channel selection
+  const toggleChannelSelection = (channelId: string) => {
+    setSelectedChannels(prev => {
+      if (prev.includes(channelId)) {
+        return prev.filter(id => id !== channelId);
+      } else {
+        return [...prev, channelId];
+      }
+    });
+  };
+  
+  // Save selected channels
+  const saveChannelsMutation = useMutation({
+    mutationFn: async (channelIds: string[]) => {
+      // First save bot settings
+      await apiRequest("POST", "/api/bot/settings", {
+        token,
+        guildId,
+        prefix,
+        analysisFrequency,
+        loggingEnabled,
+        notificationsEnabled,
+        monitorAllChannels
+      });
+      
+      // Then save each channel's monitored status
+      const promises = monitoredChannels.map((channel: any) => {
+        const isMonitored = channelIds.includes(channel.channelId);
+        return apiRequest("POST", "/api/channels/monitor", {
+          channelId: channel.channelId,
+          guildId,
+          monitor: isMonitored
+        });
+      });
+      
+      await Promise.all(promises);
+      return { success: true };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/monitored-channels"] });
+      toast({
+        title: "Channel settings saved",
+        description: "Your channel monitoring preferences have been updated.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to save channel settings",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
   const handleSaveSettings = () => {
     const data = {
       token,
@@ -102,6 +170,10 @@ export default function DiscordSettingsPage() {
     };
     
     updateSettingsMutation.mutate(data);
+  };
+  
+  const handleSaveChannelSettings = () => {
+    saveChannelsMutation.mutate(selectedChannels);
   };
 
   return (
@@ -277,6 +349,8 @@ export default function DiscordSettingsPage() {
                                 <Checkbox 
                                   id={`channel-${channel.id}`}
                                   disabled={monitorAllChannels}
+                                  checked={selectedChannels.includes(channel.channelId)}
+                                  onCheckedChange={() => toggleChannelSelection(channel.channelId)}
                                 />
                                 <label
                                   htmlFor={`channel-${channel.id}`}
