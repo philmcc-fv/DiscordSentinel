@@ -67,7 +67,49 @@ class DiscordAPI {
       log(`Logging in to Discord with token...`);
       await this.client.login(token);
       log(`Discord login successful, waiting for ready event...`);
-      return true;
+      
+      // Wait for the ready event before returning
+      // This is crucial for preventing race conditions
+      if (!this.client.isReady()) {
+        log(`Waiting for Discord client ready event...`, 'debug');
+        await new Promise<void>((resolve) => {
+          // Set up a one-time listener for the ready event
+          const readyHandler = () => {
+            log(`Discord client is now ready!`, 'debug');
+            this.isInitialized = true;
+            resolve();
+          };
+          
+          // If client becomes ready while we're setting up, resolve immediately
+          if (this.client.isReady()) {
+            log(`Discord client was already ready`, 'debug');
+            this.isInitialized = true;
+            resolve();
+            return;
+          }
+          
+          // Otherwise wait for the ready event with a timeout
+          this.client.once(Events.ClientReady, readyHandler);
+          
+          // Add a timeout in case the ready event never fires
+          setTimeout(() => {
+            this.client.removeListener(Events.ClientReady, readyHandler);
+            log(`Warning: Timed out waiting for Discord ready event after 5 seconds`, 'error');
+            // We'll continue anyway and see if it works
+            resolve();
+          }, 5000);
+        });
+      }
+
+      // Double-check to make sure we're actually initialized
+      if (!this.client.isReady()) {
+        log(`Warning: Discord client is still not ready after waiting`, 'error');
+      } else {
+        log(`Discord client is ready and fully initialized`, 'debug');
+        this.isInitialized = true;
+      }
+      
+      return this.client.isReady();
     } catch (error) {
       log(`Failed to initialize Discord client: ${error instanceof Error ? error.message : String(error)}`, 'error');
       return false;

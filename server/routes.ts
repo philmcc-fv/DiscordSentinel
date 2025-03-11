@@ -274,28 +274,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Check if guild ID or token changed and bot is active
       if (settings.isActive && (settings.guildId !== previousGuildId || settings.token !== previousToken)) {
-        console.log(`Bot settings changed: Guild ID or token updated. Restarting bot with new guild ID: ${settings.guildId}`);
+        log(`Bot settings changed: Guild ID or token updated. Restarting bot with new guild ID: ${settings.guildId}`);
         
         // Restart the bot with new settings
         // Make sure token and guildId are not null
         if (!settings.token || !settings.guildId) {
-          console.error('Missing token or guildId in settings');
+          log('Missing token or guildId in settings', 'error');
           res.status(400).json({ error: "Missing token or guildId in bot settings" });
           return;
         }
         
+        // First force a full re-initialization of the Discord API
+        await discordAPI.initialize(settings.token, true);
+        
+        // Then start the bot with the new settings
         const result = await startBot(settings.token, settings.guildId);
         
         if (result.success) {
           // Set up message listeners with the new client
           setupMessageListeners(discordAPI.getClient());
-          console.log('Discord bot restarted with new settings and listening for messages');
+          log('Discord bot restarted with new settings and listening for messages');
+          
+          log(`Bot successfully connected to Discord server: ${result.message}`);
         } else {
-          console.error(`Failed to restart Discord bot with new settings: ${result.message}`);
+          log(`Failed to restart Discord bot with new settings: ${result.message}`, 'error');
         }
       }
       
-      res.json(settings);
+      // Return the settings with additional status information
+      res.json({
+        ...settings,
+        status: {
+          success: result?.success || false,
+          message: result?.message || "Unknown status"
+        }
+      });
     } catch (error) {
       console.error(`Error updating bot settings: ${error instanceof Error ? error.message : String(error)}`);
       res.status(500).json({ error: "Failed to update bot settings" });
@@ -494,6 +507,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error stopping Discord bot:", error);
       res.status(500).json({ error: "Failed to stop Discord bot" });
+    }
+  });
+  
+  // Restart the Discord bot with the latest settings
+  app.post("/api/bot/restart", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the latest bot settings
+      const allSettings = await storage.getAllBotSettings();
+      if (allSettings.length === 0 || !allSettings[0].token || !allSettings[0].guildId) {
+        return res.status(400).json({ error: "Discord bot settings not configured properly" });
+      }
+      
+      const { token, guildId } = allSettings[0];
+      
+      log(`Manual bot restart requested for guild ${guildId}`);
+      
+      // First, destroy the existing client connection if it exists
+      if (discordAPI.isReady()) {
+        log('Destroying existing Discord client connection...');
+        await discordAPI.getClient().destroy();
+      }
+      
+      // Force re-initialization with the token
+      log('Re-initializing Discord client...');
+      await discordAPI.initialize(token, true);
+      
+      // Start the bot with the settings
+      const result = await startBot(token, guildId);
+      
+      if (result.success) {
+        // Set up message listeners
+        setupMessageListeners(discordAPI.getClient());
+        log('Discord bot successfully restarted and listening for messages');
+        
+        // Update the settings to mark the bot as active
+        await storage.createOrUpdateBotSettings({
+          ...allSettings[0],
+          isActive: true
+        });
+        
+        // Get channels after restart to verify connection
+        const channels = await discordAPI.getChannels(guildId);
+        
+        res.json({ 
+          success: true, 
+          message: `Discord bot successfully restarted. ${result.message}`,
+          channelCount: channels.length
+        });
+      } else {
+        log(`Failed to restart Discord bot: ${result.message}`, 'error');
+        res.status(500).json({ 
+          success: false, 
+          message: result.message || "Failed to restart Discord bot"
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log(`Error restarting Discord bot: ${errorMessage}`, 'error');
+      res.status(500).json({ error: `Failed to restart Discord bot: ${errorMessage}` });
     }
   });
 

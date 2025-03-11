@@ -2,7 +2,7 @@ import { analyzeSentiment } from './openai';
 import { storage } from './storage';
 import { SentimentType } from '@shared/schema';
 import { discordAPI } from './discord-api';
-import { Client, Events, Message, PermissionsBitField } from 'discord.js';
+import { Client, Events, Message, PermissionsBitField, GatewayIntentBits } from 'discord.js';
 import { log } from './vite';
 
 // Define the Discord message interface for internal use
