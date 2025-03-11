@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, pgEnum, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -58,6 +58,20 @@ export const monitoredChannels = pgTable("monitored_channels", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const excludedUsers = pgTable("excluded_users", {
+  id: serial("id").primaryKey(),
+  guildId: text("guild_id").notNull(),
+  userId: text("user_id").notNull(),
+  username: text("username").notNull(),
+  reason: text("reason"),
+  excludedAt: timestamp("excluded_at").defaultNow().notNull(),
+}, (table) => {
+  return {
+    // Ensure a user can only be excluded once per guild
+    userGuildUnique: unique().on(table.guildId, table.userId)
+  };
+});
+
 // Insertion schemas
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -98,18 +112,27 @@ export const insertMonitoredChannelSchema = createInsertSchema(monitoredChannels
   channelId: true,
 });
 
+export const insertExcludedUserSchema = createInsertSchema(excludedUsers).pick({
+  guildId: true,
+  userId: true,
+  username: true,
+  reason: true,
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertDiscordChannel = z.infer<typeof insertDiscordChannelSchema>;
 export type InsertDiscordMessage = z.infer<typeof insertDiscordMessageSchema>;
 export type InsertBotSettings = z.infer<typeof insertBotSettingsSchema>;
 export type InsertMonitoredChannel = z.infer<typeof insertMonitoredChannelSchema>;
+export type InsertExcludedUser = z.infer<typeof insertExcludedUserSchema>;
 
 export type User = typeof users.$inferSelect;
 export type DiscordChannel = typeof discordChannels.$inferSelect;
 export type DiscordMessage = typeof discordMessages.$inferSelect;
 export type BotSettings = typeof botSettings.$inferSelect;
 export type MonitoredChannel = typeof monitoredChannels.$inferSelect;
+export type ExcludedUser = typeof excludedUsers.$inferSelect;
 
 export type SentimentType = 'very_positive' | 'positive' | 'neutral' | 'negative' | 'very_negative';
 

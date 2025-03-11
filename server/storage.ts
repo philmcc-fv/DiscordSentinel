@@ -69,6 +69,12 @@ export interface IStorage {
   setChannelMonitored(channelId: string, guildId: string, monitor: boolean): Promise<void>;
   getMonitoredChannels(guildId: string): Promise<string[]>;
 
+  // User exclusion management
+  getExcludedUsers(guildId: string): Promise<ExcludedUser[]>;
+  isUserExcluded(userId: string, guildId: string): Promise<boolean>;
+  excludeUser(userData: InsertExcludedUser): Promise<ExcludedUser>;
+  removeExcludedUser(userId: string, guildId: string): Promise<void>;
+
   // Bot settings
   getBotSettings(guildId: string): Promise<BotSettings | undefined>;
   getAllBotSettings(): Promise<BotSettings[]>;
