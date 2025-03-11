@@ -1,9 +1,11 @@
 import { analyzeSentiment } from './openai';
 import { storage } from './storage';
-import { SentimentType } from '@shared/schema';
+import { SentimentType, discordChannels } from '@shared/schema';
 import { discordAPI } from './discord-api';
 import { Client, Events, Message, PermissionsBitField, GatewayIntentBits, NonThreadGuildBasedChannel, Guild, TextChannel, Collection } from 'discord.js';
 import { log } from './vite';
+import { db } from './db';
+import { eq } from 'drizzle-orm';
 
 // Define the Discord message interface for internal use
 export interface DiscordMessage {
@@ -37,6 +39,17 @@ export async function processMessage(message: DiscordMessage): Promise<void> {
       return;
     }
     log(`✅ Channel ${message.channelId} is confirmed as monitored`, 'debug');
+    
+    // Get the guild ID from a monitored channel
+    const [channel] = await db.select().from(discordChannels).where(eq(discordChannels.channelId, message.channelId));
+    if (channel) {
+      // Check if the user is excluded
+      const isExcluded = await storage.isUserExcluded(message.userId, channel.guildId);
+      if (isExcluded) {
+        log(`⏩ Skipping message ${message.id} - user ${message.username} (${message.userId}) is excluded from analysis`, 'debug');
+        return;
+      }
+    }
 
     log(`🧠 Analyzing sentiment for message ID ${message.id}: "${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}"`, 'debug');
     
@@ -113,6 +126,13 @@ export function setupMessageListeners(client: Client): void {
       const guildId = message.guild?.id;
       if (!guildId) {
         log('❌ Skipping message: No guild ID available', 'debug');
+        return;
+      }
+      
+      // Check if this user is excluded from analysis
+      const isUserExcluded = await storage.isUserExcluded(message.author.id, guildId);
+      if (isUserExcluded) {
+        log(`⏩ Skipping message - user ${message.author.username} (${message.author.id}) is excluded from analysis`, 'debug');
         return;
       }
 
@@ -306,6 +326,17 @@ export async function fetchHistoricalMessages(channelId: string, limit: number =
         // Skip bot messages
         if (message.author.bot) {
           continue;
+        }
+        
+        // Get the guild ID from the channel
+        const [channelInfo] = await db.select().from(discordChannels).where(eq(discordChannels.channelId, channelId));
+        if (channelInfo) {
+          // Check if the user is excluded from analysis
+          const isUserExcluded = await storage.isUserExcluded(message.author.id, channelInfo.guildId);
+          if (isUserExcluded) {
+            log(`⏩ Skipping historical message - user ${message.author.username} (${message.author.id}) is excluded from analysis`, 'debug');
+            continue;
+          }
         }
         
         try {

@@ -4,6 +4,7 @@ import {
   discordMessages, 
   botSettings, 
   monitoredChannels,
+  excludedUsers,
   type User, 
   type InsertUser, 
   type DiscordChannel, 
@@ -14,6 +15,8 @@ import {
   type InsertBotSettings,
   type MonitoredChannel,
   type InsertMonitoredChannel,
+  type ExcludedUser,
+  type InsertExcludedUser,
   type SentimentType
 } from "@shared/schema";
 import { db } from "./db";
@@ -278,6 +281,65 @@ export class DatabaseStorage implements IStorage {
       .where(eq(monitoredChannels.guildId, guildId));
     
     return channels.map(c => c.channelId);
+  }
+
+  // User exclusion management
+  async getExcludedUsers(guildId: string): Promise<ExcludedUser[]> {
+    return db
+      .select()
+      .from(excludedUsers)
+      .where(eq(excludedUsers.guildId, guildId))
+      .orderBy(excludedUsers.username);
+  }
+
+  async isUserExcluded(userId: string, guildId: string): Promise<boolean> {
+    const [user] = await db
+      .select()
+      .from(excludedUsers)
+      .where(
+        and(
+          eq(excludedUsers.userId, userId),
+          eq(excludedUsers.guildId, guildId)
+        )
+      );
+    
+    return !!user;
+  }
+
+  async excludeUser(userData: InsertExcludedUser): Promise<ExcludedUser> {
+    try {
+      const [excludedUser] = await db
+        .insert(excludedUsers)
+        .values(userData)
+        .returning();
+      return excludedUser;
+    } catch (error) {
+      // If there's a duplicate, just return the existing user
+      if (error instanceof Error && error.message.includes('duplicate key')) {
+        const [existingUser] = await db
+          .select()
+          .from(excludedUsers)
+          .where(
+            and(
+              eq(excludedUsers.userId, userData.userId),
+              eq(excludedUsers.guildId, userData.guildId)
+            )
+          );
+        return existingUser;
+      }
+      throw error;
+    }
+  }
+
+  async removeExcludedUser(userId: string, guildId: string): Promise<void> {
+    await db
+      .delete(excludedUsers)
+      .where(
+        and(
+          eq(excludedUsers.userId, userId),
+          eq(excludedUsers.guildId, guildId)
+        )
+      );
   }
 
   // Bot settings
