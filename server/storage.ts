@@ -274,11 +274,20 @@ export class DatabaseStorage implements IStorage {
     // Check if settings already exist
     const existing = await this.getBotSettings(settings.guildId);
     
+    // Ensure monitorAllChannels is set based on UI state if provided
+    const updatedSettings = {
+      ...settings,
+      // Set monitor_all_channels based on UI state if it's provided
+      monitorAllChannels: settings.monitorAllChannels !== undefined ? 
+        settings.monitorAllChannels : 
+        existing?.monitorAllChannels || false
+    };
+    
     if (existing) {
       const [updated] = await db
         .update(botSettings)
         .set({
-          ...settings,
+          ...updatedSettings,
           updatedAt: new Date()
         })
         .where(eq(botSettings.guildId, settings.guildId))
@@ -288,7 +297,7 @@ export class DatabaseStorage implements IStorage {
     } else {
       const [newSettings] = await db
         .insert(botSettings)
-        .values(settings)
+        .values(updatedSettings)
         .returning();
       
       return newSettings;

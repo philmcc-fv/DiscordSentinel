@@ -41,6 +41,11 @@ export const discordMessages = pgTable("discord_messages", {
 export const botSettings = pgTable("bot_settings", {
   id: serial("id").primaryKey(),
   guildId: text("guild_id").notNull().unique(),
+  token: text("token"),
+  prefix: text("prefix").default("!"),
+  analysisFrequency: text("analysis_frequency").default("realtime"),
+  loggingEnabled: boolean("logging_enabled").default(true),
+  notificationsEnabled: boolean("notifications_enabled").default(true),
   isActive: boolean("is_active").default(true).notNull(),
   monitorAllChannels: boolean("monitor_all_channels").default(false).notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -79,6 +84,11 @@ export const insertDiscordMessageSchema = createInsertSchema(discordMessages).pi
 
 export const insertBotSettingsSchema = createInsertSchema(botSettings).pick({
   guildId: true,
+  token: true,
+  prefix: true,
+  analysisFrequency: true,
+  loggingEnabled: true,
+  notificationsEnabled: true,
   isActive: true,
   monitorAllChannels: true,
 });

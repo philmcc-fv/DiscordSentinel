@@ -22,6 +22,7 @@ export default function DiscordSettingsPage() {
   const [analysisFrequency, setAnalysisFrequency] = useState("realtime");
   const [loggingEnabled, setLoggingEnabled] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [monitorAllChannels, setMonitorAllChannels] = useState(false);
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   
   // Load bot settings
@@ -43,6 +44,7 @@ export default function DiscordSettingsPage() {
       setAnalysisFrequency(botSettings.analysisFrequency || "realtime");
       setLoggingEnabled(botSettings.loggingEnabled !== undefined ? botSettings.loggingEnabled : true);
       setNotificationsEnabled(botSettings.notificationsEnabled !== undefined ? botSettings.notificationsEnabled : true);
+      setMonitorAllChannels(botSettings.monitorAllChannels !== undefined ? botSettings.monitorAllChannels : false);
     }
   }, [botSettings]);
   
@@ -95,7 +97,8 @@ export default function DiscordSettingsPage() {
       prefix,
       analysisFrequency,
       loggingEnabled,
-      notificationsEnabled
+      notificationsEnabled,
+      monitorAllChannels
     };
     
     updateSettingsMutation.mutate(data);
@@ -239,35 +242,72 @@ export default function DiscordSettingsPage() {
                       Select which channels to monitor for sentiment analysis
                     </CardDescription>
                   </CardHeader>
-                  <CardContent>
-                    {channelsLoading ? (
-                      <div className="flex justify-center py-4">
-                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <CardContent className="space-y-6">
+                    <div className="flex items-center justify-between rounded-lg border p-4">
+                      <div>
+                        <Label htmlFor="monitorAllChannels" className="text-base">Monitor All Channels</Label>
+                        <p className="text-sm text-gray-500">
+                          When enabled, all channels in the server will be monitored
+                        </p>
                       </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {monitoredChannels && monitoredChannels.length > 0 ? (
-                          monitoredChannels.map((channel: any) => (
-                            <div key={channel.id} className="flex items-center space-x-2 p-2 border rounded">
-                              <Checkbox id={`channel-${channel.id}`} />
-                              <label
-                                htmlFor={`channel-${channel.id}`}
-                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                              >
-                                #{channel.name}
-                              </label>
+                      <Switch
+                        id="monitorAllChannels"
+                        checked={monitorAllChannels}
+                        onCheckedChange={setMonitorAllChannels}
+                      />
+                    </div>
+                    
+                    <div className={monitorAllChannels ? "opacity-50 pointer-events-none" : ""}>
+                      <h3 className="font-medium mb-3">Select Individual Channels</h3>
+                      <p className="text-sm text-gray-500 mb-4">
+                        {monitorAllChannels 
+                          ? "Individual channel selection is disabled when monitoring all channels" 
+                          : "Choose specific channels to monitor"}
+                      </p>
+                      
+                      {channelsLoading ? (
+                        <div className="flex justify-center py-4">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {monitoredChannels && monitoredChannels.length > 0 ? (
+                            monitoredChannels.map((channel: any) => (
+                              <div key={channel.id} className="flex items-center space-x-2 p-2 border rounded">
+                                <Checkbox 
+                                  id={`channel-${channel.id}`}
+                                  disabled={monitorAllChannels}
+                                />
+                                <label
+                                  htmlFor={`channel-${channel.id}`}
+                                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                >
+                                  #{channel.name}
+                                </label>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-center py-4 text-gray-500">
+                              No channels available. Add channels to your Discord server and they will appear here.
                             </div>
-                          ))
-                        ) : (
-                          <div className="text-center py-4 text-gray-500">
-                            No channels available. Add channels to your Discord server and they will appear here.
-                          </div>
-                        )}
-                      </div>
-                    )}
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </CardContent>
                   <CardFooter>
-                    <Button className="ml-auto">Save Channel Settings</Button>
+                    <Button 
+                      className="ml-auto"
+                      onClick={handleSaveSettings}
+                      disabled={updateSettingsMutation.isPending}
+                    >
+                      {updateSettingsMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save className="mr-2 h-4 w-4" />
+                      )}
+                      Save Channel Settings
+                    </Button>
                   </CardFooter>
                 </Card>
               </TabsContent>
