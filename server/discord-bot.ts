@@ -187,11 +187,11 @@ export function setupMessageListeners(client: Client): void {
 /**
  * Fetch historical messages from a Discord channel and process them
  * @param channelId The channel ID to fetch messages from
- * @param limit The maximum number of messages to fetch (default: 100, max: 100 per request)
+ * @param limit The maximum number of messages to fetch (default: 1000)
  */
-export async function fetchHistoricalMessages(channelId: string, limit: number = 100): Promise<{success: boolean, count: number, message?: string}> {
+export async function fetchHistoricalMessages(channelId: string, limit: number = 1000): Promise<{success: boolean, count: number, message?: string}> {
   try {
-    log(`📚 Starting historical message fetch for channel ${channelId}`, 'debug');
+    log(`📚 Starting historical message fetch for channel ${channelId}, up to ${limit} messages`, 'debug');
     
     // Get the Discord client
     const client = discordAPI.getClient();
@@ -221,21 +221,68 @@ export async function fetchHistoricalMessages(channelId: string, limit: number =
       
       log(`📥 Fetching up to ${limit} historical messages from channel #${textChannel.name}`, 'debug');
       
-      // Fetch messages
-      let messages: Collection<string, Message>;
-      try {
-        messages = await textChannel.messages.fetch({ limit: Math.min(limit, 100) });
-        log(`📥 Successfully fetched ${messages.size} messages from channel #${textChannel.name}`, 'debug');
-      } catch (fetchError) {
-        log(`❌ Error fetching messages: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`, 'error');
-        return { 
-          success: false, 
-          count: 0,
-          message: `Error fetching messages: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}` 
+      // Fetch messages in batches of 100 (Discord API limit per request)
+      let allMessages: Message[] = [];
+      let lastMessageId: string | undefined = undefined;
+      let fetchedCount = 0;
+      let batchSize = 100;
+      
+      // Continue fetching in batches until we reach the limit or no more messages
+      while (fetchedCount < limit) {
+        let fetchOptions: { limit: number; before?: string } = {
+          limit: Math.min(batchSize, limit - fetchedCount)
         };
+        
+        if (lastMessageId) {
+          fetchOptions.before = lastMessageId;
+        }
+        
+        try {
+          log(`📥 Fetching batch of up to ${fetchOptions.limit} messages ${lastMessageId ? `before message ID ${lastMessageId}` : ''}`, 'debug');
+          const batch = await textChannel.messages.fetch(fetchOptions);
+          
+          if (batch.size === 0) {
+            log(`📥 No more messages to fetch, reached end of channel history`, 'debug');
+            break; // No more messages to fetch
+          }
+          
+          // Add the fetched messages to our collection
+          const batchArray = Array.from(batch.values());
+          allMessages = allMessages.concat(batchArray);
+          fetchedCount += batchArray.length;
+          
+          // Update the lastMessageId to the oldest message in this batch
+          lastMessageId = batchArray[batchArray.length - 1].id;
+          
+          log(`📥 Fetched ${batchArray.length} messages in this batch, total so far: ${fetchedCount}`, 'debug');
+          
+          // Add a delay between batches to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          if (fetchedCount >= limit) {
+            log(`📥 Reached specified limit of ${limit} messages`, 'debug');
+            break;
+          }
+        } catch (batchError) {
+          log(`⚠️ Error fetching batch: ${batchError instanceof Error ? batchError.message : String(batchError)}`, 'error');
+          // If we have some messages already, we'll continue with those rather than failing completely
+          if (allMessages.length > 0) {
+            log(`📥 Continuing with ${allMessages.length} messages already fetched`, 'debug');
+            break;
+          } else {
+            log(`❌ Failed to fetch any messages`, 'error');
+            return { 
+              success: false, 
+              count: 0,
+              message: `Error fetching messages: ${batchError instanceof Error ? batchError.message : String(batchError)}` 
+            };
+          }
+        }
       }
       
-      if (messages.size === 0) {
+      log(`📥 Successfully fetched a total of ${allMessages.length} messages from channel #${textChannel.name}`, 'debug');
+      
+      if (allMessages.length === 0) {
         log(`ℹ️ No messages found in channel #${textChannel.name}`, 'debug');
         return { 
           success: true, 
@@ -245,16 +292,16 @@ export async function fetchHistoricalMessages(channelId: string, limit: number =
       }
       
       // Process each message
-      log(`🔄 Processing ${messages.size} historical messages`, 'debug');
+      log(`🔄 Processing ${allMessages.length} historical messages`, 'debug');
       let processedCount = 0;
       let errorCount = 0;
       
-      // Convert collection to array for easier processing with delays
-      const messageArray = Array.from(messages.values());
+      // Use the array of messages we collected from all batches
+      const messageArray = allMessages;
       
       // Use a more controlled loop to handle rate limits
       for (let i = 0; i < messageArray.length; i++) {
-        const message = messageArray[i];
+        const message = messageArray[i] as Message;
         
         // Skip bot messages
         if (message.author.bot) {
