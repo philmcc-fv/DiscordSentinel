@@ -2,7 +2,7 @@ import { analyzeSentiment } from './openai';
 import { storage } from './storage';
 import { SentimentType } from '@shared/schema';
 import { discordAPI } from './discord-api';
-import { Client, Events, Message, PermissionsBitField, GatewayIntentBits, NonThreadGuildBasedChannel, Guild } from 'discord.js';
+import { Client, Events, Message, PermissionsBitField, GatewayIntentBits, NonThreadGuildBasedChannel, Guild, TextChannel, Collection } from 'discord.js';
 import { log } from './vite';
 
 // Define the Discord message interface for internal use
@@ -20,29 +20,36 @@ export interface DiscordMessage {
  */
 export async function processMessage(message: DiscordMessage): Promise<void> {
   try {
+    log(`🔄 Starting processing of message ID: ${message.id}`, 'debug');
+    
     // Skip messages that are too short to analyze meaningfully
     if (message.content.length < 3) {
-      log(`Skipping message ${message.id} - too short for analysis`, 'debug');
+      log(`⏩ Skipping message ${message.id} - too short for analysis (length: ${message.content.length})`, 'debug');
       return;
     }
 
-    // Check if the channel is being monitored
+    // Double-check if the channel is being monitored
+    // This should already be checked in the message listener, but let's be sure
+    log(`🔍 Verifying channel ${message.channelId} is monitored...`, 'debug');
     const isMonitored = await storage.isChannelMonitored(message.channelId);
     if (!isMonitored) {
-      log(`Skipping message ${message.id} - channel ${message.channelId} is not monitored`, 'debug');
+      log(`❌ Skipping message ${message.id} - channel ${message.channelId} is not monitored`, 'debug');
       return;
     }
+    log(`✅ Channel ${message.channelId} is confirmed as monitored`, 'debug');
 
-    log(`Analyzing sentiment for message: "${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}"`, 'debug');
+    log(`🧠 Analyzing sentiment for message ID ${message.id}: "${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}"`, 'debug');
     
     // Analyze sentiment using OpenAI
     try {
+      log(`🔄 Calling OpenAI API for sentiment analysis...`, 'debug');
       const analysis = await analyzeSentiment(message.content);
       
-      log(`OpenAI sentiment result: ${analysis.sentiment} (score: ${analysis.score}, confidence: ${analysis.confidence})`, 'debug');
+      log(`✅ OpenAI sentiment result: ${analysis.sentiment} (score: ${analysis.score}, confidence: ${analysis.confidence})`, 'debug');
 
-      // Store the message with its sentiment analysis
-      await storage.createDiscordMessage({
+      // Prepare the message data for database storage
+      log(`💾 Preparing to store message ${message.id} in database...`, 'debug');
+      const messageData = {
         messageId: message.id,
         channelId: message.channelId,
         userId: message.userId,
@@ -51,15 +58,26 @@ export async function processMessage(message: DiscordMessage): Promise<void> {
         sentiment: analysis.sentiment as SentimentType,
         sentimentScore: analysis.score,
         createdAt: message.createdAt,
-      });
+      };
+      
+      log(`📝 Message data prepared: ${JSON.stringify({
+        messageId: messageData.messageId,
+        channelId: messageData.channelId,
+        sentiment: messageData.sentiment,
+        createdAt: messageData.createdAt
+      })}`, 'debug');
 
-      log(`Successfully processed and stored message ${message.id} with sentiment: ${analysis.sentiment}`);
+      // Store the message with its sentiment analysis
+      log(`💾 Storing message in database...`, 'debug');
+      const storedMessage = await storage.createDiscordMessage(messageData);
+      
+      log(`✅ Successfully stored message ID: ${storedMessage.messageId} with sentiment: ${storedMessage.sentiment}`);
     } catch (apiError) {
-      log(`OpenAI API error during sentiment analysis: ${apiError instanceof Error ? apiError.message : String(apiError)}`, 'error');
+      log(`❌ OpenAI API error during sentiment analysis: ${apiError instanceof Error ? apiError.message : String(apiError)}`, 'error');
       // Don't throw here, we've logged the error and want to continue processing other messages
     }
   } catch (error) {
-    log(`Error processing Discord message: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    log(`❌ Error processing Discord message: ${error instanceof Error ? error.message : String(error)}`, 'error');
   }
 }
 
@@ -76,41 +94,57 @@ export function setupMessageListeners(client: Client): void {
   client.on(Events.MessageCreate, async (message: Message) => {
     // Skip bot messages
     if (message.author.bot) {
+      log(`Ignoring message from bot: ${message.author.username}`, 'debug');
       return;
     }
 
     try {
       // Log message receipt
-      log(`Received message: "${message.content.substring(0, 30)}${message.content.length > 30 ? '...' : ''}" from user ${message.author.username}`, 'debug');
+      log(`📨 Received message: "${message.content.substring(0, 30)}${message.content.length > 30 ? '...' : ''}" from user ${message.author.username} in channel ${message.channel.id}`, 'debug');
       
       // Check if we should process this message from bot settings
       const channel = message.channel;
       if (!channel || !channel.id) {
-        log('Skipping message: No valid channel', 'debug');
+        log('❌ Skipping message: No valid channel', 'debug');
         return;
       }
       
       // Get the guild ID
       const guildId = message.guild?.id;
       if (!guildId) {
-        log('Skipping message: No guild ID available', 'debug');
+        log('❌ Skipping message: No guild ID available', 'debug');
         return;
       }
 
+      log(`🔍 Checking bot settings for guild ${guildId}...`, 'debug');
       // Get bot settings for this guild
       const settings = await storage.getBotSettings(guildId);
       
-      if (!settings || !settings.isActive) {
+      if (!settings) {
+        log(`❌ No bot settings found for guild ${guildId}`, 'debug');
         return;
       }
+      
+      if (!settings.isActive) {
+        log(`❌ Bot is not active in guild ${guildId}`, 'debug');
+        return;
+      }
+      
+      log(`✅ Bot is active in guild ${guildId}`, 'debug');
 
       // If monitor all channels is false, check if the specific channel is monitored
       if (!settings.monitorAllChannels) {
+        log(`🔎 Checking if channel ${channel.id} is monitored...`, 'debug');
         const isMonitored = await storage.isChannelMonitored(channel.id);
         
         if (!isMonitored) {
+          log(`❌ Channel ${channel.id} is not monitored, skipping message`, 'debug');
           return;
+        } else {
+          log(`✅ Channel ${channel.id} is monitored`, 'debug');
         }
+      } else {
+        log(`✅ All channels are being monitored for guild ${guildId}`, 'debug');
       }
 
       // Process the message if it passes all checks
@@ -119,7 +153,7 @@ export function setupMessageListeners(client: Client): void {
       if ('name' in channel && typeof channel.name === 'string') {
         channelName = channel.name;
       }
-      log(`Processing message from ${message.author.username} in channel #${channelName}`, 'debug');
+      log(`🔄 Processing message from ${message.author.username} in channel #${channelName}`, 'debug');
       
       await processMessage({
         id: message.id,

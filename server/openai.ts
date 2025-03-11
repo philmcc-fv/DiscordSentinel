@@ -11,6 +11,9 @@ export type SentimentAnalysisResult = {
 
 export async function analyzeSentiment(text: string): Promise<SentimentAnalysisResult> {
   try {
+    console.log(`🔄 Starting OpenAI sentiment analysis for text: "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`);
+    console.log(`🔑 API key is ${process.env.OPENAI_API_KEY ? 'set' : 'NOT SET!'}`);
+    
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -27,16 +30,43 @@ export async function analyzeSentiment(text: string): Promise<SentimentAnalysisR
       response_format: { type: "json_object" },
     });
 
-    const result = JSON.parse(response.choices[0].message.content);
+    console.log(`✅ OpenAI API responded successfully`);
 
-    return {
-      sentiment: result.sentiment,
-      score: Math.max(0, Math.min(4, Math.round(result.score))),
-      confidence: Math.max(0, Math.min(1, result.confidence)),
-    };
+    if (!response.choices || !response.choices.length || !response.choices[0].message.content) {
+      console.error(`❌ OpenAI returned invalid response structure: ${JSON.stringify(response)}`);
+      throw new Error('Invalid response structure from OpenAI');
+    }
+
+    try {
+      const result = JSON.parse(response.choices[0].message.content);
+      
+      if (!result.sentiment || typeof result.score === 'undefined' || typeof result.confidence === 'undefined') {
+        console.error(`❌ OpenAI response missing required fields: ${JSON.stringify(result)}`);
+        throw new Error('OpenAI response missing required sentiment fields');
+      }
+      
+      console.log(`✅ Parsed sentiment result: ${result.sentiment} (score: ${result.score}, confidence: ${result.confidence})`);
+      
+      return {
+        sentiment: result.sentiment,
+        score: Math.max(0, Math.min(4, Math.round(result.score))),
+        confidence: Math.max(0, Math.min(1, result.confidence)),
+      };
+    } catch (parseError) {
+      console.error(`❌ Failed to parse OpenAI response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+      console.error(`Response content was: ${response.choices[0].message.content}`);
+      throw new Error(`Failed to parse OpenAI response: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+    }
   } catch (error: any) {
-    console.error("OpenAI API error:", error.message);
-    // Fallback to a neutral sentiment if API call fails
+    console.error(`❌ OpenAI API error: ${error.message}`);
+    
+    if (error.response) {
+      console.error(`❌ OpenAI API status: ${error.response.status}`);
+      console.error(`❌ OpenAI API data: ${JSON.stringify(error.response.data)}`);
+    }
+    
+    // Fallback to a neutral sentiment if API call fails, but log the error clearly
+    console.error(`⚠️ Using fallback neutral sentiment due to API error`);
     return {
       sentiment: 'neutral',
       score: 2,
