@@ -34,21 +34,39 @@ class DiscordAPI {
   }
 
   async initialize(token: string, force: boolean = false): Promise<boolean> {
+    // Log the initialization attempt
+    if (force) {
+      log(`Forcing Discord client reinitialization with token: ${token.substring(0, 5)}...`, 'debug');
+    } else {
+      log(`Checking Discord client initialization status`, 'debug');
+    }
+    
+    // Check if we need to initialize
     if (this.isInitialized && token === this.token && !force) {
+      log(`Discord client already initialized with same token, skipping initialization`, 'debug');
       return true;
+    }
+
+    // Log reason for reinitialization
+    if (token !== this.token) {
+      log(`Discord token changed, reinitializing client`, 'debug');
+    } else if (!this.isInitialized) {
+      log(`Discord client not initialized, initializing now`, 'debug');
     }
 
     // If we have a different token, force reinitialize, or not initialized
     try {
       if (this.client.isReady()) {
-        console.log("Destroying existing Discord client connection...");
+        log(`Destroying existing Discord client connection...`);
         await this.client.destroy();
         this.hasSetupListeners = false;
         this.isInitialized = false;
       }
 
       this.token = token;
+      log(`Logging in to Discord with token...`);
       await this.client.login(token);
+      log(`Discord login successful, waiting for ready event...`);
       return true;
     } catch (error) {
       log(`Failed to initialize Discord client: ${error instanceof Error ? error.message : String(error)}`, 'error');
@@ -73,28 +91,44 @@ class DiscordAPI {
   }
 
   async getChannels(guildId: string): Promise<{channelId: string, name: string, guildId: string, guildName: string}[]> {
-    if (!this.isInitialized) return [];
+    if (!this.isInitialized) {
+      log(`Cannot get channels: Discord API not initialized`, 'error');
+      return [];
+    }
 
     try {
+      log(`Fetching channels for guild ID: ${guildId}`, 'debug');
+      
       const guild = await this.getGuild(guildId);
-      if (!guild) return [];
+      if (!guild) {
+        log(`Could not find guild with ID: ${guildId}`, 'error');
+        return [];
+      }
 
+      log(`Found guild: ${guild.name} (${guild.id}), fetching channels...`);
       const channels = await guild.channels.fetch();
+      log(`Retrieved ${channels.size} total channels from Discord API`);
       
       // Filter to only text channels and convert to our format
       const result: {channelId: string, name: string, guildId: string, guildName: string}[] = [];
       
       channels.forEach(channel => {
-        if (channel !== null && channel.type === 0) {
-          result.push({
-            channelId: channel.id,
-            name: channel.name,
-            guildId: guild.id,
-            guildName: guild.name
-          });
+        if (channel !== null) {
+          log(`Checking channel: ${channel.name} (${channel.id}), type: ${channel.type}`, 'debug');
+          
+          if (channel.type === 0) {
+            result.push({
+              channelId: channel.id,
+              name: channel.name,
+              guildId: guild.id,
+              guildName: guild.name
+            });
+            log(`Added text channel: ${channel.name} (${channel.id})`);
+          }
         }
       });
       
+      log(`Returning ${result.length} text channels for guild ${guild.name}`);
       return result;
     } catch (error) {
       log(`Error fetching channels: ${error instanceof Error ? error.message : String(error)}`, 'error');

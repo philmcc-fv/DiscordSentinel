@@ -56,27 +56,50 @@ export async function processMessage(message: DiscordMessage): Promise<void> {
  * Set up message processing on the Discord client
  */
 export function setupMessageListeners(client: Client): void {
+  log('Setting up Discord message listeners...', 'debug');
+  
   client.on(Events.MessageCreate, async (message: Message) => {
     // Skip bot messages
-    if (message.author.bot) return;
+    if (message.author.bot) {
+      log(`Skipping bot message from ${message.author.username}`, 'debug');
+      return;
+    }
 
     try {
+      log(`Received message: "${message.content.substring(0, 30)}${message.content.length > 30 ? '...' : ''}" from user ${message.author.username}`, 'debug');
+      
       // Check if we should process this message from bot settings
       const channel = message.channel;
-      if (!channel || !channel.id) return;
+      if (!channel || !channel.id) {
+        log('Skipping message: No valid channel', 'debug');
+        return;
+      }
       
       // Get the guild ID
       const guildId = message.guild?.id;
-      if (!guildId) return;
+      if (!guildId) {
+        log('Skipping message: No guild ID available', 'debug');
+        return;
+      }
 
       // Get bot settings for this guild
       const settings = await storage.getBotSettings(guildId);
-      if (!settings || !settings.isActive) return;
+      log(`Bot settings for guild ${guildId}: ${settings ? `Active: ${settings.isActive}, MonitorAll: ${settings.monitorAllChannels}` : 'Not found'}`, 'debug');
+      
+      if (!settings || !settings.isActive) {
+        log(`Skipping message: Bot not active for guild ${guildId}`, 'debug');
+        return;
+      }
 
       // If monitor all channels is false, check if the specific channel is monitored
       if (!settings.monitorAllChannels) {
         const isMonitored = await storage.isChannelMonitored(channel.id);
-        if (!isMonitored) return;
+        log(`Channel ${channel.id} monitored status: ${isMonitored}`, 'debug');
+        
+        if (!isMonitored) {
+          log(`Skipping message: Channel ${channel.id} is not monitored`, 'debug');
+          return;
+        }
       }
 
       // Process the message
