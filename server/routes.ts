@@ -129,8 +129,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (monitor && !wasMonitored) {
         log(`🔍 Channel ${channelId} is being monitored for the first time. Fetching historical messages...`);
         
-        // Fetch historical messages in the background
-        fetchHistoricalMessages(channelId, 100)
+        // Fetch historical messages in the background (up to 1000 messages)
+        fetchHistoricalMessages(channelId, 1000)
           .then(result => {
             if (result.success) {
               log(`✅ Successfully fetched and processed ${result.count} historical messages from channel ${channelId}`);
@@ -490,7 +490,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       log(`📚 Manual request to fetch historical messages for channel ${channelId}`);
       
       // Use a Promise to fetch messages in the background but still provide immediate feedback
-      fetchHistoricalMessages(channelId, limit || 100)
+      fetchHistoricalMessages(channelId, limit || 1000)
         .then(result => {
           if (result.success) {
             log(`✅ Successfully fetched and processed ${result.count} historical messages from channel ${channelId}`);
