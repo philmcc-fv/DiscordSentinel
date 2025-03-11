@@ -293,19 +293,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const result = await startBot(token, guildId);
       
       if (result.success) {
-        // Set up message listeners
-        setupMessageListeners(discordAPI.getClient());
+        // Only set up message listeners if we truly have access to the guild
+        // Check if the message doesn't indicate partial success
+        const hasFullAccess = !result.message?.includes("could not verify") && 
+                             !result.message?.includes("no text channels") &&
+                             !result.message?.includes("no accessible text channels");
         
-        // Update the settings to mark the bot as active
-        await storage.createOrUpdateBotSettings({
-          ...allSettings[0],
-          isActive: true
-        });
-        
-        res.json({ 
-          success: true, 
-          message: result.message || "Discord bot started successfully" 
-        });
+        if (hasFullAccess) {
+          // Set up message listeners
+          setupMessageListeners(discordAPI.getClient());
+          
+          // Update the settings to mark the bot as active
+          await storage.createOrUpdateBotSettings({
+            ...allSettings[0],
+            isActive: true
+          });
+          
+          res.json({ 
+            success: true, 
+            message: result.message || "Discord bot started successfully" 
+          });
+        } else {
+          // Connected but with limited access
+          await storage.createOrUpdateBotSettings({
+            ...allSettings[0],
+            isActive: true
+          });
+          
+          res.json({ 
+            success: true, 
+            message: result.message || "Discord bot started with limited access" 
+          });
+        }
       } else {
         res.status(500).json({ 
           success: false, 

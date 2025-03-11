@@ -152,12 +152,12 @@ class DiscordAPI {
       if (errorMessage.includes("Unknown Guild")) {
         return {
           success: false,
-          message: "The Discord server ID you provided could not be found. To fix this: 1) Verify the server ID is correct, 2) Make sure you've invited the bot to this server, 3) Check that the bot has the 'Server Members Intent' enabled in the Discord Developer Portal."
+          message: "The Discord server ID you provided could not be found. To fix this:\n\n1️⃣ Verify the server ID is correct: Right-click on your server in Discord, select 'Copy ID'\n\n2️⃣ Make sure you've invited the bot to this specific server using the OAuth2 URL from Discord Developer Portal with 'bot' scope\n\n3️⃣ Check that the bot has the 'Server Members Intent' enabled in the Discord Developer Portal"
         };
       } else if (errorMessage.includes("Invalid token")) {
         return {
           success: false,
-          message: "The Discord bot token is invalid. Please check that you're using the correct token from the Discord Developer Portal."
+          message: "The Discord bot token is invalid. To fix this:\n\n1️⃣ Go to Discord Developer Portal > Your Application > Bot section\n\n2️⃣ Click 'Reset Token' if needed and copy the new token\n\n3️⃣ Make sure you're copying the Bot Token, not the Client Secret or Application ID"
         };
       } else if (errorMessage.includes("disallowed intents")) {
         return {
