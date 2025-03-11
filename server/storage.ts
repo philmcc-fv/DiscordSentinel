@@ -315,7 +315,7 @@ export class DatabaseStorage implements IStorage {
       guildId: String(row.guild_id),
       username: String(row.username),
       reason: row.reason ? String(row.reason) : null,
-      createdAt: new Date(row.created_at)
+      createdAt: row.created_at ? new Date(String(row.created_at)) : new Date()
     }));
   }
 
@@ -333,10 +333,13 @@ export class DatabaseStorage implements IStorage {
 
   async excludeUser(userData: InsertExcludedUser): Promise<ExcludedUser> {
     try {
+      // Format current date as ISO string which PostgreSQL can parse
+      const currentTime = new Date().toISOString();
+      
       // Use raw SQL approach for inserting
       const query = sql`
         INSERT INTO excluded_users (user_id, guild_id, username, reason, created_at)
-        VALUES (${userData.userId}, ${userData.guildId}, ${userData.username}, ${userData.reason || null}, ${new Date()})
+        VALUES (${userData.userId}, ${userData.guildId}, ${userData.username}, ${userData.reason || null}, ${currentTime})
         RETURNING *
       `;
       
@@ -349,7 +352,7 @@ export class DatabaseStorage implements IStorage {
         guildId: String(result[0].guild_id),
         username: String(result[0].username),
         reason: result[0].reason ? String(result[0].reason) : null,
-        createdAt: new Date(result[0].created_at)
+        createdAt: result[0].created_at ? new Date(String(result[0].created_at)) : new Date()
       };
     } catch (error) {
       // If there's a duplicate, just return the existing user
@@ -368,7 +371,7 @@ export class DatabaseStorage implements IStorage {
           guildId: String(result[0].guild_id),
           username: String(result[0].username),
           reason: result[0].reason ? String(result[0].reason) : null,
-          createdAt: new Date(result[0].created_at)
+          createdAt: result[0].created_at ? new Date(String(result[0].created_at)) : new Date()
         };
       }
       
