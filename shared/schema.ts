@@ -64,7 +64,7 @@ export const excludedUsers = pgTable("excluded_users", {
   userId: text("user_id").notNull(),
   username: text("username").notNull(),
   reason: text("reason"),
-  excludedAt: timestamp("excluded_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => {
   return {
     // Ensure a user can only be excluded once per guild

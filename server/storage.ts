@@ -292,73 +292,84 @@ export class DatabaseStorage implements IStorage {
 
   // User exclusion management
   async getExcludedUsers(guildId: string): Promise<ExcludedUser[]> {
-    // Let's try using the Drizzle ORM directly
-    const result = await db
-      .select()
-      .from(excludedUsers)
-      .where(eq(excludedUsers.guildId, guildId))
-      .orderBy(excludedUsers.username)
-      .execute();
+    // Use raw SQL to ensure consistent field naming
+    const query = sql`
+      SELECT 
+        id, 
+        user_id, 
+        guild_id, 
+        username, 
+        reason, 
+        created_at
+      FROM excluded_users
+      WHERE guild_id = ${guildId}
+      ORDER BY username
+    `;
     
-    // Transform from db schema format to API format with proper casing
-    return result.map(row => ({
-      id: row.id,
-      userId: row.userId,
-      guildId: row.guildId,
-      username: row.username,
-      reason: row.reason,
-      createdAt: row.createdAt
+    const results = await db.execute(query);
+    
+    // Transform from db snake_case to camelCase with explicit type casting
+    return results.map(row => ({
+      id: Number(row.id),
+      userId: String(row.user_id),
+      guildId: String(row.guild_id),
+      username: String(row.username),
+      reason: row.reason ? String(row.reason) : null,
+      createdAt: new Date(row.created_at)
     }));
   }
 
   async isUserExcluded(userId: string, guildId: string): Promise<boolean> {
-    // Use Drizzle ORM
-    const result = await db
-      .select({ id: excludedUsers.id })
-      .from(excludedUsers)
-      .where(
-        and(
-          eq(excludedUsers.userId, userId),
-          eq(excludedUsers.guildId, guildId)
-        )
-      )
-      .limit(1)
-      .execute();
+    // Use raw SQL query to ensure consistent field naming
+    const query = sql`
+      SELECT 1 FROM excluded_users
+      WHERE user_id = ${userId} AND guild_id = ${guildId}
+      LIMIT 1
+    `;
     
+    const result = await db.execute(query);
     return result.length > 0;
   }
 
   async excludeUser(userData: InsertExcludedUser): Promise<ExcludedUser> {
     try {
-      // Use Drizzle ORM to insert
-      const [result] = await db
-        .insert(excludedUsers)
-        .values({
-          userId: userData.userId,
-          guildId: userData.guildId,
-          username: userData.username,
-          reason: userData.reason || null,
-          createdAt: new Date()
-        })
-        .returning()
-        .execute();
+      // Use raw SQL approach for inserting
+      const query = sql`
+        INSERT INTO excluded_users (user_id, guild_id, username, reason, created_at)
+        VALUES (${userData.userId}, ${userData.guildId}, ${userData.username}, ${userData.reason || null}, ${new Date()})
+        RETURNING *
+      `;
       
-      return result;
+      const result = await db.execute(query);
+      
+      // Convert from db snake_case to camelCase with explicit type casting
+      return {
+        id: Number(result[0].id),
+        userId: String(result[0].user_id),
+        guildId: String(result[0].guild_id),
+        username: String(result[0].username),
+        reason: result[0].reason ? String(result[0].reason) : null,
+        createdAt: new Date(result[0].created_at)
+      };
     } catch (error) {
       // If there's a duplicate, just return the existing user
       if (error instanceof Error && error.message.includes('duplicate key')) {
-        const [existingUser] = await db
-          .select()
-          .from(excludedUsers)
-          .where(
-            and(
-              eq(excludedUsers.userId, userData.userId),
-              eq(excludedUsers.guildId, userData.guildId)
-            )
-          )
-          .execute();
+        const query = sql`
+          SELECT * FROM excluded_users
+          WHERE user_id = ${userData.userId} AND guild_id = ${userData.guildId}
+        `;
         
-        return existingUser;
+        const result = await db.execute(query);
+        
+        // Convert from db snake_case to camelCase with explicit type casting
+        return {
+          id: Number(result[0].id),
+          userId: String(result[0].user_id),
+          guildId: String(result[0].guild_id),
+          username: String(result[0].username),
+          reason: result[0].reason ? String(result[0].reason) : null,
+          createdAt: new Date(result[0].created_at)
+        };
       }
       
       console.error('Error excluding user:', error);
@@ -367,16 +378,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async removeExcludedUser(userId: string, guildId: string): Promise<void> {
-    // Use Drizzle ORM to delete
-    await db
-      .delete(excludedUsers)
-      .where(
-        and(
-          eq(excludedUsers.userId, userId),
-          eq(excludedUsers.guildId, guildId)
-        )
-      )
-      .execute();
+    // Use raw SQL to delete
+    const query = sql`
+      DELETE FROM excluded_users
+      WHERE user_id = ${userId} AND guild_id = ${guildId}
+    `;
+    
+    await db.execute(query);
   }
 
   // Bot settings
