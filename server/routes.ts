@@ -5,6 +5,7 @@ import { setupAuth } from "./auth";
 import { processMessage } from "./discord-bot";
 import { format, subDays, parseISO } from "date-fns";
 
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
   setupAuth(app);
@@ -129,6 +130,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const settings = await storage.getBotSettings(req.params.guildId);
       res.json(settings || { guildId: req.params.guildId, isActive: false, monitorAllChannels: false });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch bot settings" });
+    }
+  });
+  
+  // General bot settings (no guild specified)
+  app.get("/api/bot/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // For now, if there's no specific guildId, we'll return all settings or an empty object
+      // This is a simplified approach - in a production app, you might want to return the most recently used guild
+      const defaultGuildId = process.env.DEFAULT_GUILD_ID || "default";
+      const settings = await storage.getBotSettings(defaultGuildId);
+      res.json(settings || {});
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bot settings" });
     }
