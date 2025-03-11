@@ -34,6 +34,12 @@ class DiscordAPI {
   }
 
   async initialize(token: string, force: boolean = false): Promise<boolean> {
+    // Validate token
+    if (!token || token.trim() === '') {
+      log(`Cannot initialize Discord client: Token is empty or invalid`, 'error');
+      return false;
+    }
+    
     // Log the initialization attempt
     if (force) {
       log(`Forcing Discord client reinitialization with token: ${token.substring(0, 5)}...`, 'debug');
@@ -44,7 +50,7 @@ class DiscordAPI {
     // Check if we need to initialize
     if (this.isInitialized && token === this.token && !force) {
       log(`Discord client already initialized with same token, skipping initialization`, 'debug');
-      return true;
+      return this.client.isReady();
     }
 
     // Log reason for reinitialization
@@ -56,62 +62,120 @@ class DiscordAPI {
 
     // If we have a different token, force reinitialize, or not initialized
     try {
-      if (this.client.isReady()) {
+      // Clean up any existing client connections
+      if (this.client && this.client.isReady()) {
         log(`Destroying existing Discord client connection...`);
         await this.client.destroy();
         this.hasSetupListeners = false;
         this.isInitialized = false;
       }
 
+      // Re-create the client with proper intents
+      // This ensures we don't have any lingering state
+      this.client = new Client({
+        intents: [
+          GatewayIntentBits.Guilds,
+          GatewayIntentBits.GuildMessages,
+          GatewayIntentBits.MessageContent,
+          GatewayIntentBits.GuildMembers,
+        ]
+      });
+
+      // Set up core event handlers
+      this.client.on(Events.ClientReady, () => {
+        log(`Discord bot logged in as ${this.client.user?.tag}`);
+        this.isInitialized = true;
+      });
+
+      this.client.on(Events.Error, (error) => {
+        log(`Discord client error: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        this.isInitialized = false;
+      });
+
+      // Store the token for future reference
       this.token = token;
+      
+      // Try to login
       log(`Logging in to Discord with token...`);
-      await this.client.login(token);
-      log(`Discord login successful, waiting for ready event...`);
+      try {
+        await this.client.login(token);
+        log(`Discord login successful, waiting for ready event...`);
+      } catch (loginError) {
+        log(`Discord login failed: ${loginError instanceof Error ? loginError.message : String(loginError)}`, 'error');
+        return false;
+      }
       
       // Wait for the ready event before returning
       // This is crucial for preventing race conditions
       if (!this.client.isReady()) {
         log(`Waiting for Discord client ready event...`, 'debug');
-        await new Promise<void>((resolve) => {
-          // Set up a one-time listener for the ready event
-          const readyHandler = () => {
-            log(`Discord client is now ready!`, 'debug');
-            this.isInitialized = true;
-            resolve();
-          };
+        
+        try {
+          await Promise.race([
+            // Promise that resolves when the client is ready
+            new Promise<void>((resolve) => {
+              const readyHandler = () => {
+                log(`Discord client is now ready!`, 'debug');
+                this.isInitialized = true;
+                resolve();
+              };
+              
+              // If client becomes ready while we're setting up, resolve immediately
+              if (this.client.isReady()) {
+                log(`Discord client was already ready`, 'debug');
+                this.isInitialized = true;
+                resolve();
+                return;
+              }
+              
+              // Otherwise wait for the ready event
+              this.client.once(Events.ClientReady, readyHandler);
+            }),
+            
+            // Promise that rejects after a timeout
+            new Promise<void>((_, reject) => {
+              setTimeout(() => {
+                reject(new Error("Timeout waiting for Discord client ready event"));
+              }, 10000); // Increased timeout to 10 seconds
+            })
+          ]);
+        } catch (timeoutError) {
+          log(`${timeoutError instanceof Error ? timeoutError.message : "Timed out waiting for Discord ready event"}`, 'error');
           
-          // If client becomes ready while we're setting up, resolve immediately
-          if (this.client.isReady()) {
-            log(`Discord client was already ready`, 'debug');
-            this.isInitialized = true;
-            resolve();
-            return;
+          // Check if the client is ready despite the timeout
+          if (!this.client.isReady()) {
+            log(`Discord client is not ready after timeout, attempting to continue anyway`, 'error');
           }
-          
-          // Otherwise wait for the ready event with a timeout
-          this.client.once(Events.ClientReady, readyHandler);
-          
-          // Add a timeout in case the ready event never fires
-          setTimeout(() => {
-            this.client.removeListener(Events.ClientReady, readyHandler);
-            log(`Warning: Timed out waiting for Discord ready event after 5 seconds`, 'error');
-            // We'll continue anyway and see if it works
-            resolve();
-          }, 5000);
-        });
+        }
       }
 
       // Double-check to make sure we're actually initialized
-      if (!this.client.isReady()) {
+      const isReady = this.client.isReady();
+      if (!isReady) {
         log(`Warning: Discord client is still not ready after waiting`, 'error');
+        this.isInitialized = false;
       } else {
         log(`Discord client is ready and fully initialized`, 'debug');
         this.isInitialized = true;
       }
       
-      return this.client.isReady();
+      return isReady;
     } catch (error) {
-      log(`Failed to initialize Discord client: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log(`Failed to initialize Discord client: ${errorMessage}`, 'error');
+      
+      // Provide detailed error diagnostics
+      if (errorMessage.includes("Privileged intent")) {
+        log(`Error: This bot requires privileged intents. Please enable them in the Discord Developer Portal:
+        1. Go to https://discord.com/developers/applications
+        2. Select your application
+        3. Go to the "Bot" tab
+        4. Enable "Server Members Intent" and "Message Content Intent"
+        5. Save changes and restart the bot`, 'error');
+      } else if (errorMessage.includes("invalid token")) {
+        log(`Error: The Discord token is invalid. Please check your token and try again.`, 'error');
+      }
+      
       return false;
     }
   }

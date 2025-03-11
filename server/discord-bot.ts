@@ -58,14 +58,18 @@ export async function processMessage(message: DiscordMessage): Promise<void> {
 export function setupMessageListeners(client: Client): void {
   log('Setting up Discord message listeners...', 'debug');
   
+  // Remove any existing message listeners to prevent duplicates
+  client.removeAllListeners(Events.MessageCreate);
+  
+  // Set up new message listener
   client.on(Events.MessageCreate, async (message: Message) => {
     // Skip bot messages
     if (message.author.bot) {
-      log(`Skipping bot message from ${message.author.username}`, 'debug');
       return;
     }
 
     try {
+      // Log message receipt
       log(`Received message: "${message.content.substring(0, 30)}${message.content.length > 30 ? '...' : ''}" from user ${message.author.username}`, 'debug');
       
       // Check if we should process this message from bot settings
@@ -84,25 +88,28 @@ export function setupMessageListeners(client: Client): void {
 
       // Get bot settings for this guild
       const settings = await storage.getBotSettings(guildId);
-      log(`Bot settings for guild ${guildId}: ${settings ? `Active: ${settings.isActive}, MonitorAll: ${settings.monitorAllChannels}` : 'Not found'}`, 'debug');
       
       if (!settings || !settings.isActive) {
-        log(`Skipping message: Bot not active for guild ${guildId}`, 'debug');
         return;
       }
 
       // If monitor all channels is false, check if the specific channel is monitored
       if (!settings.monitorAllChannels) {
         const isMonitored = await storage.isChannelMonitored(channel.id);
-        log(`Channel ${channel.id} monitored status: ${isMonitored}`, 'debug');
         
         if (!isMonitored) {
-          log(`Skipping message: Channel ${channel.id} is not monitored`, 'debug');
           return;
         }
       }
 
-      // Process the message
+      // Process the message if it passes all checks
+      // Get channel name safely using channel type checking
+      let channelName = channel.id;
+      if ('name' in channel && typeof channel.name === 'string') {
+        channelName = channel.name;
+      }
+      log(`Processing message from ${message.author.username} in channel #${channelName}`, 'debug');
+      
       await processMessage({
         id: message.id,
         channelId: channel.id,
@@ -116,6 +123,19 @@ export function setupMessageListeners(client: Client): void {
     }
   });
 
+  // Set up debug events for better diagnostics
+  client.on(Events.Debug, (message) => {
+    log(`Discord debug: ${message}`, 'debug');
+  });
+  
+  client.on(Events.Warn, (message) => {
+    log(`Discord warning: ${message}`, 'error');
+  });
+  
+  client.on(Events.Error, (error) => {
+    log(`Discord error: ${error instanceof Error ? error.message : String(error)}`, 'error');
+  });
+
   log('Discord message listeners set up successfully');
 }
 
@@ -124,39 +144,73 @@ export function setupMessageListeners(client: Client): void {
  */
 export async function startBot(token: string, guildId: string): Promise<{success: boolean, message?: string}> {
   try {
+    // Validate inputs
+    if (!token || token.trim() === '') {
+      return {
+        success: false,
+        message: "Discord bot token is missing or empty. Please provide a valid token."
+      };
+    }
+    
+    if (!guildId || guildId.trim() === '') {
+      return {
+        success: false,
+        message: "Discord server ID is missing or empty. Please provide a valid server ID."
+      };
+    }
+    
+    // Clean the token (remove spaces, new lines, etc.)
+    const cleanToken = token.trim();
+    const cleanGuildId = guildId.trim();
+    
+    log(`Starting Discord bot for guild ${cleanGuildId}`);
+    
     // Use the discord API service to initialize the client
-    const initialized = await discordAPI.initialize(token);
+    // This will also destroy any existing connections
+    const initialized = await discordAPI.initialize(cleanToken, true);
     if (!initialized) {
-      const errorMsg = 'Failed to initialize Discord client';
-      log(errorMsg, 'error');
       return {
         success: false, 
-        message: errorMsg
+        message: "Failed to authenticate with Discord. Please check your bot token."
       };
     }
 
-    log(`Discord bot logged in, attempting to access guild ${guildId}...`);
+    log(`Discord bot logged in, attempting to access guild ${cleanGuildId}...`);
 
     // Ensure the bot has access to the specified guild
-    const guild = await discordAPI.getGuild(guildId);
+    const guild = await discordAPI.getGuild(cleanGuildId);
     if (!guild) {
-      const errorMsg = `Discord bot authenticated but cannot access guild ${guildId}. Make sure the bot has been invited to the server with proper permissions.`;
-      log(errorMsg, 'error');
-      
       return {
         success: false,
-        message: "Bot connected to Discord but could not access the specified server. Common issues: 1) The server ID is incorrect 2) The bot hasn't been invited to the server 3) The bot doesn't have required permissions"
+        message: "Bot connected to Discord but could not access the specified server. Please check: 1) The server ID is correct 2) The bot has been invited to this server 3) The bot has required permissions"
       };
     }
     
     // Check if the bot has the MESSAGE_CONTENT intent, which is crucial for monitoring messages
     const client = discordAPI.getClient();
     if (!client.options.intents.has(GatewayIntentBits.MessageContent)) {
-      log(`Warning: The bot does not have the MESSAGE_CONTENT intent enabled, which is required to read message content`, 'error');
-      
       return {
         success: false,
-        message: "Bot connected but is missing the MESSAGE_CONTENT intent which is required to read message content. Go to Discord Developer Portal, select your application, go to the Bot section, and enable the 'Message Content Intent'."
+        message: "Bot connected but is missing the MESSAGE_CONTENT intent which is required to read message content. Please enable this in the Discord Developer Portal."
+      };
+    }
+    
+    // Verify permissions are correct
+    const botMember = await guild.members.fetch(client.user.id);
+    const missingPermissions = [];
+
+    // Check for critical permissions
+    if (!botMember.permissions.has(PermissionsBitField.Flags.ViewChannel)) {
+      missingPermissions.push("View Channels");
+    }
+    if (!botMember.permissions.has(PermissionsBitField.Flags.ReadMessageHistory)) {
+      missingPermissions.push("Read Message History");
+    }
+    
+    if (missingPermissions.length > 0) {
+      return {
+        success: false,
+        message: `Bot is missing required permissions: ${missingPermissions.join(", ")}. Please update the bot's role permissions in Discord.`
       };
     }
     
@@ -174,23 +228,30 @@ export async function startBot(token: string, guildId: string): Promise<{success
         };
       }
       
-      // Count text channels as potentially accessible
-      const accessibleChannels = textChannels.size;
+      // Count text channels that the bot can actually access
+      let accessibleCount = 0;
+      for (const [id, channel] of textChannels) {
+        if (channel.permissionsFor(client.user.id)?.has(PermissionsBitField.Flags.ViewChannel)) {
+          accessibleCount++;
+        }
+      }
       
-      if (accessibleChannels === 0) {
+      if (accessibleCount === 0) {
         return {
           success: true,
-          message: `Connected to server "${guild.name}" but found no accessible text channels. Please check the bot's permissions.`
+          message: `Connected to server "${guild.name}" but cannot access any text channels. Please check channel-specific permissions.`
         };
       }
       
-      log(`Discord bot successfully started and connected to guild: ${guild.name} with ${accessibleChannels} accessible channels`);
+      log(`Discord bot successfully started and connected to guild: ${guild.name} with ${accessibleCount} accessible channels`);
       return {
         success: true,
-        message: `Successfully connected to "${guild.name}" with access to ${accessibleChannels} text channels`
+        message: `Successfully connected to "${guild.name}" with access to ${accessibleCount} text channels`
       };
     } catch (channelError) {
       log(`Connected to guild but had issues checking channels: ${channelError instanceof Error ? channelError.message : String(channelError)}`, 'error');
+      
+      // Still consider this a success since we connected to the guild
       return {
         success: true,
         message: `Connected to server "${guild.name}" but could not verify channel access. Monitor channels manually.`
@@ -200,16 +261,21 @@ export async function startBot(token: string, guildId: string): Promise<{success
     const errorMessage = error instanceof Error ? error.message : String(error);
     log(`Error starting Discord bot: ${errorMessage}`, 'error');
     
-    // Provide more user-friendly error messages
+    // Provide more user-friendly error messages based on common errors
     if (errorMessage.includes("Unknown Guild")) {
       return {
         success: false,
         message: "The Discord server ID you provided could not be found. Please double-check the ID and make sure the bot has been invited to the server."
       };
-    } else if (errorMessage.includes("Invalid token")) {
+    } else if (errorMessage.includes("Invalid token") || errorMessage.includes("invalid token")) {
       return {
         success: false,
         message: "The Discord bot token you provided is invalid. Please check the token and try again."
+      };
+    } else if (errorMessage.includes("Privileged intent")) {
+      return {
+        success: false,
+        message: "The bot requires privileged intents that are not enabled. Please enable 'MESSAGE CONTENT INTENT' and 'SERVER MEMBERS INTENT' in the Discord Developer Portal."
       };
     }
     

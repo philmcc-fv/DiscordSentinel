@@ -272,6 +272,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update settings
       const settings = await storage.createOrUpdateBotSettings(req.body);
       
+      // Default status
+      let botStatus = {
+        success: false,
+        message: "No changes to bot settings"
+      };
+      
       // Check if guild ID or token changed and bot is active
       if (settings.isActive && (settings.guildId !== previousGuildId || settings.token !== previousToken)) {
         log(`Bot settings changed: Guild ID or token updated. Restarting bot with new guild ID: ${settings.guildId}`);
@@ -284,30 +290,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         }
         
-        // First force a full re-initialization of the Discord API
-        await discordAPI.initialize(settings.token, true);
-        
-        // Then start the bot with the new settings
-        const result = await startBot(settings.token, settings.guildId);
-        
-        if (result.success) {
-          // Set up message listeners with the new client
-          setupMessageListeners(discordAPI.getClient());
-          log('Discord bot restarted with new settings and listening for messages');
+        try {
+          // First force a full re-initialization of the Discord API
+          const initialized = await discordAPI.initialize(settings.token, true);
           
-          log(`Bot successfully connected to Discord server: ${result.message}`);
-        } else {
-          log(`Failed to restart Discord bot with new settings: ${result.message}`, 'error');
+          if (!initialized) {
+            botStatus = {
+              success: false,
+              message: "Failed to initialize Discord client. Please check your bot token."
+            };
+          } else {
+            // Then start the bot with the new settings
+            const result = await startBot(settings.token, settings.guildId);
+            
+            // Update status with the result from startBot
+            botStatus = {
+              success: result.success,
+              message: result.message || "Unknown status"
+            };
+            
+            if (result.success) {
+              // Set up message listeners with the new client
+              setupMessageListeners(discordAPI.getClient());
+              log('Discord bot restarted with new settings and listening for messages');
+              
+              log(`Bot successfully connected to Discord server: ${result.message}`);
+            } else {
+              log(`Failed to restart Discord bot with new settings: ${result.message}`, 'error');
+            }
+          }
+        } catch (botError) {
+          log(`Error connecting to Discord: ${botError instanceof Error ? botError.message : String(botError)}`, 'error');
+          botStatus = {
+            success: false,
+            message: `Failed to connect to Discord: ${botError instanceof Error ? botError.message : String(botError)}`
+          };
         }
       }
       
       // Return the settings with additional status information
       res.json({
         ...settings,
-        status: {
-          success: result?.success || false,
-          message: result?.message || "Unknown status"
-        }
+        status: botStatus
       });
     } catch (error) {
       console.error(`Error updating bot settings: ${error instanceof Error ? error.message : String(error)}`);
