@@ -694,6 +694,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // User exclusion management
+  app.get("/api/excluded-users/:guildId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const guildId = req.params.guildId;
+      if (!guildId) {
+        return res.status(400).json({ error: "Guild ID is required" });
+      }
+      
+      const excludedUsers = await storage.getExcludedUsers(guildId);
+      res.json(excludedUsers);
+    } catch (error) {
+      log(`Error fetching excluded users: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ error: "Failed to fetch excluded users" });
+    }
+  });
+  
+  app.post("/api/excluded-users", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { userId, guildId, username } = req.body;
+      
+      if (!userId || !guildId) {
+        return res.status(400).json({ error: "User ID and Guild ID are required" });
+      }
+      
+      // Check if already excluded
+      const isExcluded = await storage.isUserExcluded(userId, guildId);
+      if (isExcluded) {
+        return res.status(400).json({ error: "User is already excluded" });
+      }
+      
+      // Add to excluded users
+      const excludedUser = await storage.excludeUser({
+        userId,
+        guildId,
+        username: username || userId,
+        excludedAt: new Date()
+      });
+      
+      log(`User ${excludedUser.username} (${excludedUser.userId}) has been excluded from analysis in guild ${guildId}`);
+      res.status(201).json(excludedUser);
+    } catch (error) {
+      log(`Error excluding user: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ error: "Failed to exclude user" });
+    }
+  });
+  
+  app.delete("/api/excluded-users/:userId/:guildId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { userId, guildId } = req.params;
+      
+      if (!userId || !guildId) {
+        return res.status(400).json({ error: "User ID and Guild ID are required" });
+      }
+      
+      // Check if actually excluded
+      const isExcluded = await storage.isUserExcluded(userId, guildId);
+      if (!isExcluded) {
+        return res.status(404).json({ error: "User is not in the excluded list" });
+      }
+      
+      // Remove from excluded users
+      await storage.removeExcludedUser(userId, guildId);
+      
+      log(`User ${userId} has been removed from exclusion list in guild ${guildId}`);
+      res.json({ success: true });
+    } catch (error) {
+      log(`Error removing excluded user: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ error: "Failed to remove user from exclusion list" });
+    }
+  });
+
   // Test sentiment analysis (for development/debugging only)
   app.post("/api/test/analyze-sentiment", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
