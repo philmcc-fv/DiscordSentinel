@@ -1,6 +1,9 @@
-import { drizzle } from "drizzle-orm/neon-serverless";
-import { neon } from "@neondatabase/serverless";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 
-// Create database connection
-const sql = neon(process.env.DATABASE_URL!);
+// Create database connection with postgres-js
+const sql = postgres(process.env.DATABASE_URL!, { 
+  ssl: 'require',
+  max: 10, // Connection pool size
+});
 export const db = drizzle(sql);

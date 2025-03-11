@@ -19,10 +19,10 @@ import {
 import { db } from "./db";
 import { eq, and, sql, desc, between, gte, lte, count } from "drizzle-orm";
 import session from "express-session";
-import connectPg from "connect-pg-simple";
+import connectPgSimple from "connect-pg-simple";
 import { format, subDays, startOfDay, endOfDay } from "date-fns";
 
-const PostgresSessionStore = connectPg(session);
+const PostgresSessionStore = connectPgSimple(session);
 
 export interface DailySentimentData {
   date: string;
@@ -83,11 +83,11 @@ export interface IStorage {
   }>;
 
   // Session store for authentication
-  sessionStore: session.SessionStore;
+  sessionStore: any;
 }
 
 export class DatabaseStorage implements IStorage {
-  sessionStore: session.SessionStore;
+  sessionStore: any;
 
   constructor() {
     this.sessionStore = new PostgresSessionStore({
