@@ -26,7 +26,7 @@ export default function DiscordSettingsPage() {
   
   // Load bot settings
   const { data: botSettings, isLoading } = useQuery<any>({
-    queryKey: ["/api/bot-settings"],
+    queryKey: ["/api/bot/settings"],
   });
   
   // Load monitored channels
@@ -49,11 +49,11 @@ export default function DiscordSettingsPage() {
   // Save settings mutation
   const updateSettingsMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/bot-settings", data);
+      const res = await apiRequest("POST", "/api/bot/settings", data);
       return await res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/bot-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/settings"] });
       toast({
         title: "Settings saved",
         description: "Your Discord bot settings have been updated.",
