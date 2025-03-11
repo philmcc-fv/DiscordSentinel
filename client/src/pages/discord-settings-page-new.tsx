@@ -33,8 +33,41 @@ export default function DiscordSettingsPage() {
   });
   
   // Load monitored channels
-  const { data: monitoredChannels = [], isLoading: channelsLoading } = useQuery<any[]>({
+  const { data: monitoredChannels = [], isLoading: channelsLoading, refetch: refetchChannels } = useQuery<any[]>({
     queryKey: ["/api/monitored-channels"],
+  });
+  
+  // Refresh channels mutation
+  const [isRefreshingChannels, setIsRefreshingChannels] = useState(false);
+  
+  const refreshChannelsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/bot/refresh-channels");
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({
+          title: "Channels refreshed",
+          description: data.message || `Successfully refreshed channels from Discord server.`,
+        });
+        refetchChannels(); // Reload the channels
+        queryClient.invalidateQueries({ queryKey: ["/api/monitored-channels"] }); 
+      } else {
+        toast({
+          title: "Failed to refresh channels",
+          description: data.message || "Could not refresh Discord channels. Please check your settings.",
+          variant: "destructive",
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to refresh channels",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
   });
   
   // Update form values when bot settings are loaded
@@ -506,11 +539,34 @@ export default function DiscordSettingsPage() {
               
               <TabsContent value="channels">
                 <Card>
-                  <CardHeader>
-                    <CardTitle>Channel Monitoring</CardTitle>
-                    <CardDescription>
-                      Select which channels to monitor for sentiment analysis
-                    </CardDescription>
+                  <CardHeader className="flex flex-row items-center justify-between">
+                    <div>
+                      <CardTitle>Channel Monitoring</CardTitle>
+                      <CardDescription>
+                        Select which channels to monitor for sentiment analysis
+                      </CardDescription>
+                    </div>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => {
+                        setIsRefreshingChannels(true);
+                        refreshChannelsMutation.mutate(undefined, {
+                          onSettled: () => {
+                            setIsRefreshingChannels(false);
+                          }
+                        });
+                      }}
+                      disabled={isRefreshingChannels}
+                      className="flex gap-1"
+                    >
+                      {isRefreshingChannels ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCw className="h-4 w-4" />
+                      )}
+                      {isRefreshingChannels ? "Refreshing..." : "Refresh Channels"}
+                    </Button>
                   </CardHeader>
                   <CardContent className="space-y-6">
                     <div className="flex items-center justify-between rounded-lg border p-4">
@@ -528,11 +584,16 @@ export default function DiscordSettingsPage() {
                     </div>
                     
                     <div className={monitorAllChannels ? "opacity-50 pointer-events-none" : ""}>
-                      <h3 className="font-medium mb-3">Select Individual Channels</h3>
+                      <div className="flex justify-between items-center mb-3">
+                        <h3 className="font-medium">Select Individual Channels</h3>
+                        {channelsLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                      </div>
                       <p className="text-sm text-gray-500 mb-4">
                         {monitorAllChannels 
                           ? "Individual channel selection is disabled when monitoring all channels" 
-                          : "Choose specific channels to monitor"}
+                          : monitoredChannels.length === 0 
+                            ? "No channels found. Try refreshing channels or check your Discord server settings." 
+                            : "Choose specific channels to monitor"}
                       </p>
                       
                       {channelsLoading ? (

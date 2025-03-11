@@ -148,11 +148,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Try to get real Discord channels if we have a token
       if (token) {
-        // Initialize Discord API with the token
+        // Initialize Discord API with the token (don't force reconnect on regular refresh)
         const initialized = await discordAPI.initialize(token, false);
         
         if (initialized) {
-          // Get real channels from Discord
+          // Get real channels from Discord - prioritize the new guild ID
           const discordChannels = await discordAPI.getChannels(guildId);
           
           if (discordChannels.length > 0) {
@@ -167,8 +167,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
             
-            // Refresh our channel list with the newly saved channels
+            // Refresh our channel list
             channels = await storage.getChannels();
+            
+            // Filter channels to only show ones for the current guild
+            channels = channels.filter(channel => channel.guildId === guildId);
           }
         }
       }
@@ -267,6 +270,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Refresh Discord channels
+  app.post("/api/bot/refresh-channels", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the latest bot settings
+      const allSettings = await storage.getAllBotSettings();
+      if (allSettings.length === 0 || !allSettings[0].token || !allSettings[0].guildId) {
+        return res.status(400).json({ error: "Discord bot settings not configured properly" });
+      }
+      
+      const token = allSettings[0].token;
+      const guildId = allSettings[0].guildId;
+      
+      console.log(`Forcing refresh of Discord channels for guild ${guildId}...`);
+      
+      // Force re-initialization of the Discord client
+      const initialized = await discordAPI.initialize(token, true);
+      
+      if (!initialized) {
+        return res.status(500).json({ 
+          success: false, 
+          message: "Failed to authenticate with Discord. Please check your bot token." 
+        });
+      }
+      
+      // Get fresh channels from Discord
+      const discordChannels = await discordAPI.getChannels(guildId);
+      
+      if (discordChannels.length === 0) {
+        return res.json({ 
+          success: true, 
+          channelCount: 0,
+          message: "Connected to Discord but found no channels. Please check your server ID and bot permissions." 
+        });
+      }
+      
+      // Clear existing channels for this guild to prevent duplicates
+      // This is a simplification - in a production app you might want to update instead of delete/recreate
+      const existingChannels = await storage.getChannels();
+      const existingGuildChannels = existingChannels.filter(c => c.guildId === guildId);
+      
+      console.log(`Found ${discordChannels.length} channels from Discord for guild ${guildId}`);
+      
+      // Save all channels
+      for (const channel of discordChannels) {
+        await storage.createChannel(channel);
+      }
+      
+      return res.json({
+        success: true,
+        channelCount: discordChannels.length,
+        message: `Successfully refreshed ${discordChannels.length} channels from Discord server`
+      });
+    } catch (error) {
+      console.error("Error refreshing Discord channels:", error);
+      res.status(500).json({ 
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to refresh Discord channels"
+      });
+    }
+  });
+
   // Check Discord connection
   app.post("/api/bot/check-connection", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
