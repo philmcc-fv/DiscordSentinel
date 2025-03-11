@@ -80,9 +80,9 @@ export default function HomePage() {
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 gap-6">
               <MetricCard
                 title="Analyzed Messages"
-                value={statsLoading ? "..." : stats?.totalMessages.toLocaleString()}
+                value={statsLoading ? "..." : (stats?.totalMessages || 0).toLocaleString()}
                 icon={<MessageCircle className="h-5 w-5 text-blue-500" />}
-                changeValue={statsLoading ? "..." : `${stats?.messageGrowth.toFixed(1)}%`}
+                changeValue={statsLoading ? "..." : `${(stats?.messageGrowth || 0).toFixed(1)}%`}
                 changeLabel="from last month"
                 isPositiveChange={!statsLoading && (stats?.messageGrowth || 0) > 0}
                 isLoading={statsLoading}
@@ -90,9 +90,9 @@ export default function HomePage() {
 
               <MetricCard
                 title="Average Sentiment"
-                value={statsLoading ? "..." : stats?.avgSentiment}
+                value={statsLoading ? "..." : (stats?.avgSentiment || "Neutral")}
                 icon={<BarChart2 className="h-5 w-5 text-green-500" />}
-                changeValue={statsLoading ? "..." : `${stats?.sentimentGrowth.toFixed(1)}%`}
+                changeValue={statsLoading ? "..." : `${(stats?.sentimentGrowth || 0).toFixed(1)}%`}
                 changeLabel="from last month"
                 isPositiveChange={!statsLoading && (stats?.sentimentGrowth || 0) > 0}
                 isLoading={statsLoading}
@@ -100,9 +100,9 @@ export default function HomePage() {
 
               <MetricCard
                 title="Active Users"
-                value={statsLoading ? "..." : stats?.activeUsers}
+                value={statsLoading ? "..." : (stats?.activeUsers || 0)}
                 icon={<Users className="h-5 w-5 text-purple-500" />}
-                changeValue={statsLoading ? "..." : `${stats?.userGrowth.toFixed(1)}%`}
+                changeValue={statsLoading ? "..." : `${(stats?.userGrowth || 0).toFixed(1)}%`}
                 changeLabel="from last month"
                 isPositiveChange={!statsLoading && (stats?.userGrowth || 0) > 0}
                 isLoading={statsLoading}
