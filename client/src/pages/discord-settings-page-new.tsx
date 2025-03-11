@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/sidebar";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { Loader2, Save, RotateCw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function DiscordSettingsPage() {
   const { toast } = useToast();
@@ -19,19 +22,83 @@ export default function DiscordSettingsPage() {
   const [analysisFrequency, setAnalysisFrequency] = useState("realtime");
   const [loggingEnabled, setLoggingEnabled] = useState(true);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [isCheckingConnection, setIsCheckingConnection] = useState(false);
   
-  const handleSaveSettings = () => {
-    setLoading(true);
-    
-    // Simulating API call
-    setTimeout(() => {
-      setLoading(false);
+  // Load bot settings
+  const { data: botSettings, isLoading } = useQuery<any>({
+    queryKey: ["/api/bot-settings"],
+  });
+  
+  // Load monitored channels
+  const { data: monitoredChannels = [], isLoading: channelsLoading } = useQuery<any[]>({
+    queryKey: ["/api/monitored-channels"],
+  });
+  
+  // Update form values when bot settings are loaded
+  useEffect(() => {
+    if (botSettings) {
+      setToken(botSettings.token || "");
+      setGuildId(botSettings.guildId || "");
+      setPrefix(botSettings.prefix || "!");
+      setAnalysisFrequency(botSettings.analysisFrequency || "realtime");
+      setLoggingEnabled(botSettings.loggingEnabled !== undefined ? botSettings.loggingEnabled : true);
+      setNotificationsEnabled(botSettings.notificationsEnabled !== undefined ? botSettings.notificationsEnabled : true);
+    }
+  }, [botSettings]);
+  
+  // Save settings mutation
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/bot-settings", data);
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot-settings"] });
       toast({
         title: "Settings saved",
-        description: "Your Discord bot settings have been updated successfully.",
+        description: "Your Discord bot settings have been updated.",
       });
-    }, 1000);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to save settings",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Connection check
+  const checkConnection = async () => {
+    setIsCheckingConnection(true);
+    try {
+      await apiRequest("POST", "/api/bot/check-connection");
+      toast({
+        title: "Connection successful",
+        description: "The bot is connected to Discord successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Connection failed",
+        description: "Could not connect to Discord. Please check your settings.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCheckingConnection(false);
+    }
+  };
+  
+  const handleSaveSettings = () => {
+    const data = {
+      token,
+      guildId,
+      prefix,
+      analysisFrequency,
+      loggingEnabled,
+      notificationsEnabled
+    };
+    
+    updateSettingsMutation.mutate(data);
   };
 
   return (
@@ -142,12 +209,8 @@ export default function DiscordSettingsPage() {
                   <CardFooter className="flex justify-between">
                     <Button 
                       variant="outline"
-                      onClick={() => {
-                        toast({
-                          title: "Testing connection...",
-                          description: "Please wait while we test the connection."
-                        });
-                      }}
+                      onClick={checkConnection}
+                      disabled={isCheckingConnection}
                     >
                       <RotateCw className="mr-2 h-4 w-4" />
                       Test Connection
@@ -155,9 +218,9 @@ export default function DiscordSettingsPage() {
                     
                     <Button 
                       onClick={handleSaveSettings}
-                      disabled={loading}
+                      disabled={updateSettingsMutation.isPending}
                     >
-                      {loading ? (
+                      {updateSettingsMutation.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
                         <Save className="mr-2 h-4 w-4" />
@@ -177,9 +240,31 @@ export default function DiscordSettingsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-center py-4 text-gray-500">
-                      No channels available. Add channels to your Discord server and they will appear here.
-                    </div>
+                    {channelsLoading ? (
+                      <div className="flex justify-center py-4">
+                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {monitoredChannels && monitoredChannels.length > 0 ? (
+                          monitoredChannels.map((channel: any) => (
+                            <div key={channel.id} className="flex items-center space-x-2 p-2 border rounded">
+                              <Checkbox id={`channel-${channel.id}`} />
+                              <label
+                                htmlFor={`channel-${channel.id}`}
+                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                              >
+                                #{channel.name}
+                              </label>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-4 text-gray-500">
+                            No channels available. Add channels to your Discord server and they will appear here.
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </CardContent>
                   <CardFooter>
                     <Button className="ml-auto">Save Channel Settings</Button>
