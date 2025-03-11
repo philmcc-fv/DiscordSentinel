@@ -140,15 +140,8 @@ export async function startBot(token: string, guildId: string): Promise<{success
         };
       }
       
-      // Count channels we have permission to access
-      let accessibleChannels = 0;
-      for (const [_, channel] of textChannels) {
-        // Check if bot can view messages in this channel
-        const permissions = channel.permissionsFor(discordAPI.getClient().user!);
-        if (permissions && permissions.has(1 << 10)) { // ViewChannel permission
-          accessibleChannels++;
-        }
-      }
+      // Count text channels as potentially accessible
+      const accessibleChannels = textChannels.size;
       
       if (accessibleChannels === 0) {
         return {

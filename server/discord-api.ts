@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Collection, Guild, GuildChannel, Channel, TextChannel, Events } from 'discord.js';
+import { Client, GatewayIntentBits, Collection, Guild, GuildChannel, Channel, TextChannel, Events, PermissionsBitField } from 'discord.js';
 import { log } from './vite';
 
 class DiscordAPI {
@@ -125,15 +125,12 @@ class DiscordAPI {
       // Get more details about accessible channels
       try {
         const channels = await guild.channels.fetch();
-        const accessibleTextChannels = channels.filter(channel => 
-          channel && channel.isTextBased() && 
-          channel.permissionsFor(this.client.user!)?.has([
-            PermissionsBitField.Flags.ViewChannel,
-            PermissionsBitField.Flags.ReadMessageHistory
-          ])
+        // Filter text channels
+        const textChannels = channels.filter(channel => 
+          channel && channel.isTextBased()
         );
 
-        const channelCount = accessibleTextChannels.size;
+        const channelCount = textChannels.size;
         
         return { 
           success: true, 
@@ -149,18 +146,23 @@ class DiscordAPI {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      log(`Error testing Discord connection: ${errorMessage}`, 'error');
+      log(`Discord connection test failed: ${errorMessage}`, 'error');
       
-      // Provide more user-friendly error messages
+      // Provide specific guidance based on error type
       if (errorMessage.includes("Unknown Guild")) {
         return {
           success: false,
-          message: "The Discord server ID you provided could not be found. Please double-check the ID and make sure the bot has been invited to the server."
+          message: "The Discord server ID you provided could not be found. To fix this: 1) Verify the server ID is correct, 2) Make sure you've invited the bot to this server, 3) Check that the bot has the 'Server Members Intent' enabled in the Discord Developer Portal."
         };
       } else if (errorMessage.includes("Invalid token")) {
         return {
           success: false,
-          message: "The Discord bot token you provided is invalid. Please check the token and try again."
+          message: "The Discord bot token is invalid. Please check that you're using the correct token from the Discord Developer Portal."
+        };
+      } else if (errorMessage.includes("disallowed intents")) {
+        return {
+          success: false,
+          message: "The bot requires additional permissions in the Discord Developer Portal. Please enable the required intents (Server Members, Message Content) for your bot application."
         };
       }
       
