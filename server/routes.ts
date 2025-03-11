@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
-import { processMessage } from "./discord-bot";
+import { processMessage, startBot, setupMessageListeners } from "./discord-bot";
 import { format, subDays, parseISO } from "date-fns";
 import { discordAPI } from "./discord-api";
 
@@ -273,6 +273,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error checking Discord connection:", error);
       res.status(500).json({ error: "Failed to check Discord connection" });
+    }
+  });
+  
+  // Start the Discord bot manually
+  app.post("/api/bot/start", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the latest bot settings
+      const allSettings = await storage.getAllBotSettings();
+      if (allSettings.length === 0 || !allSettings[0].token || !allSettings[0].guildId) {
+        return res.status(400).json({ error: "Discord bot settings not configured properly" });
+      }
+      
+      const { token, guildId } = allSettings[0];
+      
+      // Start the bot
+      const success = await startBot(token, guildId);
+      
+      if (success) {
+        // Set up message listeners
+        setupMessageListeners(discordAPI.getClient());
+        
+        // Update the settings to mark the bot as active
+        await storage.createOrUpdateBotSettings({
+          ...allSettings[0],
+          isActive: true
+        });
+        
+        res.json({ success: true, message: "Discord bot started successfully" });
+      } else {
+        res.status(500).json({ success: false, message: "Failed to start Discord bot" });
+      }
+    } catch (error) {
+      console.error("Error starting Discord bot:", error);
+      res.status(500).json({ error: "Failed to start Discord bot" });
     }
   });
 

@@ -24,6 +24,7 @@ export default function DiscordSettingsPage() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [monitorAllChannels, setMonitorAllChannels] = useState(false);
   const [isCheckingConnection, setIsCheckingConnection] = useState(false);
+  const [isStartingBot, setIsStartingBot] = useState(false);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   
   // Load bot settings
@@ -185,6 +186,37 @@ export default function DiscordSettingsPage() {
   const handleSaveChannelSettings = () => {
     saveChannelsMutation.mutate(selectedChannels);
   };
+  
+  // Start bot mutation
+  const startBotMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/bot/start");
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/settings"] });
+      toast({
+        title: "Bot started",
+        description: data.message || "The Discord bot has been started successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to start bot",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const handleStartBot = () => {
+    setIsStartingBot(true);
+    startBotMutation.mutate(undefined, {
+      onSettled: () => {
+        setIsStartingBot(false);
+      }
+    });
+  };
 
   return (
     <div className="flex flex-col md:flex-row min-h-screen w-full bg-gray-50">
@@ -291,19 +323,38 @@ export default function DiscordSettingsPage() {
                     </div>
                   </CardContent>
                   
-                  <CardFooter className="flex justify-between">
+                  <CardFooter className="flex flex-wrap gap-2">
                     <Button 
                       variant="outline"
                       onClick={checkConnection}
                       disabled={isCheckingConnection}
                     >
-                      <RotateCw className="mr-2 h-4 w-4" />
+                      {isCheckingConnection ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <RotateCw className="mr-2 h-4 w-4" />
+                      )}
                       Test Connection
+                    </Button>
+                    
+                    <Button 
+                      variant="outline"
+                      onClick={handleStartBot}
+                      disabled={isStartingBot || !token || !guildId || startBotMutation.isPending}
+                      className="bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-700 border-green-200"
+                    >
+                      {isStartingBot || startBotMutation.isPending ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="mr-2 h-4 w-4" />
+                      )}
+                      Start Bot
                     </Button>
                     
                     <Button 
                       onClick={handleSaveSettings}
                       disabled={updateSettingsMutation.isPending}
+                      className="ml-auto"
                     >
                       {updateSettingsMutation.isPending ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -1,6 +1,10 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { storage } from "./storage";
+import { startBot } from "./discord-bot";
+import { discordAPI } from "./discord-api";
+import { setupMessageListeners } from "./discord-bot";
 
 const app = express();
 app.use(express.json());
@@ -63,7 +67,30 @@ app.use((req, res, next) => {
     port,
     host: "0.0.0.0",
     reusePort: true,
-  }, () => {
+  }, async () => {
     log(`serving on port ${port}`);
+    
+    // Initialize the Discord bot if there are settings available
+    try {
+      const allSettings = await storage.getAllBotSettings();
+      if (allSettings.length > 0 && allSettings[0].token && allSettings[0].guildId && allSettings[0].isActive) {
+        const { token, guildId } = allSettings[0];
+        
+        log(`Initializing Discord bot for guild ${guildId}`);
+        const success = await startBot(token, guildId);
+        
+        if (success) {
+          // Set up message listeners
+          setupMessageListeners(discordAPI.getClient());
+          log('Discord bot successfully initialized and listening for messages');
+        } else {
+          log('Discord bot failed to initialize', 'error');
+        }
+      } else {
+        log('Discord bot not initialized: No active bot settings found');
+      }
+    } catch (error) {
+      log(`Error initializing Discord bot: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
   });
 })();
