@@ -196,6 +196,13 @@ export async function startBot(token: string, guildId: string): Promise<{success
     }
     
     // Verify permissions are correct
+    if (!client.user) {
+      return {
+        success: false,
+        message: "Discord client not properly initialized. User object is null."
+      };
+    }
+    
     const botMember = await guild.members.fetch(client.user.id);
     const missingPermissions = [];
 

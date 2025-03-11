@@ -376,16 +376,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Clear existing channels for this guild to prevent duplicates
-      // This is a simplification - in a production app you might want to update instead of delete/recreate
+      // Handle existing channels - update rather than just inserting to avoid duplicates
       const existingChannels = await storage.getChannels();
-      const existingGuildChannels = existingChannels.filter(c => c.guildId === guildId);
+      const existingChannelMap = new Map();
+      
+      // Create a map of existing channels by channelId for quick lookup
+      for (const channel of existingChannels) {
+        if (channel.guildId === guildId) {
+          existingChannelMap.set(channel.channelId, channel);
+        }
+      }
       
       console.log(`Found ${discordChannels.length} channels from Discord for guild ${guildId}`);
       
-      // Save all channels
+      // Process channels - update existing ones and create new ones
       for (const channel of discordChannels) {
-        await storage.createChannel(channel);
+        try {
+          const existing = existingChannelMap.get(channel.channelId);
+          
+          if (existing) {
+            // Update existing channel if needed
+            await storage.updateChannel(channel);
+            log(`Updated existing channel: ${channel.name} (${channel.channelId})`);
+          } else {
+            // Create new channel if it doesn't exist
+            await storage.createChannel(channel);
+            log(`Added new channel: ${channel.name} (${channel.channelId})`);
+          }
+        } catch (channelError) {
+          log(`Error processing channel ${channel.name}: ${channelError instanceof Error ? channelError.message : String(channelError)}`, 'error');
+          // Continue with other channels even if one fails
+        }
       }
       
       // Restart the bot to ensure it's connected to the correct guild

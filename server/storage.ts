@@ -56,6 +56,7 @@ export interface IStorage {
   getChannels(): Promise<DiscordChannel[]>;
   getChannel(channelId: string): Promise<DiscordChannel | undefined>;
   createChannel(channel: InsertDiscordChannel): Promise<DiscordChannel>;
+  updateChannel(channel: InsertDiscordChannel): Promise<DiscordChannel>;
 
   // Discord message management
   getRecentMessages(limit?: number): Promise<DiscordMessage[]>;
@@ -133,11 +134,31 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createChannel(channel: InsertDiscordChannel): Promise<DiscordChannel> {
-    const [newChannel] = await db
-      .insert(discordChannels)
-      .values(channel)
+    try {
+      const [newChannel] = await db
+        .insert(discordChannels)
+        .values(channel)
+        .returning();
+      return newChannel;
+    } catch (error) {
+      // If there's a duplicate, try to update instead
+      if (error instanceof Error && error.message.includes('duplicate key')) {
+        return this.updateChannel(channel);
+      }
+      throw error;
+    }
+  }
+  
+  async updateChannel(channel: InsertDiscordChannel): Promise<DiscordChannel> {
+    const [updatedChannel] = await db
+      .update(discordChannels)
+      .set({
+        name: channel.name,
+        guildName: channel.guildName
+      })
+      .where(eq(discordChannels.channelId, channel.channelId))
       .returning();
-    return newChannel;
+    return updatedChannel;
   }
 
   // Discord message management
