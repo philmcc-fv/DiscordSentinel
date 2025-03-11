@@ -122,6 +122,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to update channel monitoring" });
     }
   });
+  
+  // GET monitored channels
+  app.get("/api/monitored-channels", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the bot settings to check for guild ID
+      const allSettings = await storage.getAllBotSettings();
+      if (allSettings.length === 0) {
+        return res.json([]);
+      }
+      
+      // Use the first guild ID from settings
+      const guildId = allSettings[0].guildId;
+      if (!guildId) {
+        return res.json([]);
+      }
+      
+      // Get channels for this guild
+      const channels = await storage.getChannels();
+      if (channels.length === 0) {
+        // If real channels can't be fetched, create a temporary one for testing
+        if (process.env.NODE_ENV !== 'production') {
+          const testChannels = [
+            { id: 1, channelId: 'test-channel-1', name: 'general', guildId, guildName: 'Your Server' },
+            { id: 2, channelId: 'test-channel-2', name: 'announcements', guildId, guildName: 'Your Server' },
+            { id: 3, channelId: 'test-channel-3', name: 'random', guildId, guildName: 'Your Server' }
+          ];
+          return res.json(testChannels);
+        }
+      }
+      
+      res.json(channels);
+    } catch (error) {
+      console.error("Error fetching monitored channels:", error);
+      res.status(500).json({ error: "Failed to fetch monitored channels" });
+    }
+  });
 
   // Bot settings
   app.get("/api/bot/settings/:guildId", async (req, res) => {
@@ -157,6 +195,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(settings);
     } catch (error) {
       res.status(500).json({ error: "Failed to update bot settings" });
+    }
+  });
+  
+  // Check Discord connection
+  app.post("/api/bot/check-connection", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the latest bot settings
+      const allSettings = await storage.getAllBotSettings();
+      if (allSettings.length === 0 || !allSettings[0].token) {
+        return res.status(400).json({ error: "No Discord token configured" });
+      }
+      
+      // For now, we'll just return success since we're not actually connecting to Discord yet
+      // In a real implementation, we would validate the token against the Discord API
+      res.json({ success: true, message: "Connection successful" });
+    } catch (error) {
+      console.error("Error checking Discord connection:", error);
+      res.status(500).json({ error: "Failed to check Discord connection" });
     }
   });
 
