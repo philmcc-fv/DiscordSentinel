@@ -312,6 +312,98 @@ export default function DiscordSettingsPage() {
   // Stop bot mutation
   const [isStoppingBot, setIsStoppingBot] = useState(false);
   
+  // User exclusion states and API calls
+  const [newUserId, setNewUserId] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [isExcludingUser, setIsExcludingUser] = useState(false);
+  const [isRemovingUser, setIsRemovingUser] = useState<string | null>(null);
+  
+  // Fetch excluded users
+  const { data: excludedUsers = [], isLoading: excludedUsersLoading, refetch: refetchExcludedUsers } = useQuery<any[]>({
+    queryKey: ["/api/excluded-users", botSettings?.guildId],
+    queryFn: async () => {
+      if (!botSettings?.guildId) return [];
+      const res = await apiRequest("GET", `/api/excluded-users/${botSettings.guildId}`);
+      return await res.json();
+    },
+    enabled: !!botSettings?.guildId,
+  });
+  
+  // Add user to excluded list
+  const excludeUserMutation = useMutation({
+    mutationFn: async (data: { userId: string; guildId: string; username: string }) => {
+      const res = await apiRequest("POST", "/api/excluded-users", data);
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "User excluded",
+        description: "The user will no longer be included in sentiment analysis.",
+      });
+      refetchExcludedUsers();
+      setNewUserId("");
+      setNewUserName("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to exclude user",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Remove user from excluded list
+  const removeExcludedUserMutation = useMutation({
+    mutationFn: async ({ userId, guildId }: { userId: string; guildId: string }) => {
+      const res = await apiRequest("DELETE", `/api/excluded-users/${userId}/${guildId}`);
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "User removed from exclusion list",
+        description: "The user's messages will now be included in sentiment analysis.",
+      });
+      refetchExcludedUsers();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to remove user",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const handleExcludeUser = () => {
+    if (!newUserId || !botSettings?.guildId) return;
+    
+    setIsExcludingUser(true);
+    excludeUserMutation.mutate({
+      userId: newUserId,
+      guildId: botSettings.guildId,
+      username: newUserName || newUserId,
+    }, {
+      onSettled: () => {
+        setIsExcludingUser(false);
+      }
+    });
+  };
+  
+  const handleRemoveExcludedUser = (userId: string) => {
+    if (!botSettings?.guildId) return;
+    
+    setIsRemovingUser(userId);
+    removeExcludedUserMutation.mutate({
+      userId,
+      guildId: botSettings.guildId
+    }, {
+      onSettled: () => {
+        setIsRemovingUser(null);
+      }
+    });
+  };
+  
   const stopBotMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/bot/stop");
@@ -372,8 +464,118 @@ export default function DiscordSettingsPage() {
               <TabsList className="mb-4">
                 <TabsTrigger value="general">General Settings</TabsTrigger>
                 <TabsTrigger value="channels">Channel Settings</TabsTrigger>
+                <TabsTrigger value="exclusions">User Exclusions</TabsTrigger>
                 <TabsTrigger value="notifications">Notifications</TabsTrigger>
               </TabsList>
+              
+              {/* User Exclusions Tab */}
+              <TabsContent value="exclusions">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>User Exclusions</CardTitle>
+                    <CardDescription>
+                      Manage users whose messages should be excluded from sentiment analysis
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-blue-800 text-sm">
+                      <p className="font-medium mb-1">Why exclude users?</p>
+                      <p>You may want to exclude certain users from sentiment analysis if:</p>
+                      <ul className="list-disc pl-5 mt-2 space-y-1">
+                        <li>They are bots or automated services posting messages</li>
+                        <li>They post content that isn't relevant to server sentiment</li>
+                        <li>Their messages would skew the sentiment analysis results</li>
+                      </ul>
+                    </div>
+                    
+                    {/* Add new excluded user */}
+                    <div className="border rounded-lg p-4 space-y-4">
+                      <h3 className="font-medium text-lg">Add User to Exclusion List</h3>
+                      
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="userId">User ID</Label>
+                          <Input 
+                            id="userId"
+                            placeholder="Enter Discord user ID"
+                            value={newUserId}
+                            onChange={(e) => setNewUserId(e.target.value)}
+                          />
+                          <p className="text-xs text-gray-500">
+                            To get a User ID in Discord: Enable Developer Mode in Settings → Advanced, then right-click on a user and select "Copy ID"
+                          </p>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label htmlFor="username">Username (Optional)</Label>
+                          <Input 
+                            id="username"
+                            placeholder="For display purposes only"
+                            value={newUserName}
+                            onChange={(e) => setNewUserName(e.target.value)}
+                          />
+                          <p className="text-xs text-gray-500">
+                            This is only for your reference and can be left blank
+                          </p>
+                        </div>
+                        
+                        <Button 
+                          onClick={handleExcludeUser}
+                          disabled={isExcludingUser || !newUserId || !botSettings?.guildId}
+                          className="mt-2"
+                        >
+                          {isExcludingUser ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : null}
+                          Exclude User
+                        </Button>
+                      </div>
+                    </div>
+                    
+                    {/* List of excluded users */}
+                    <div>
+                      <h3 className="font-medium text-lg mb-3">Currently Excluded Users</h3>
+                      
+                      {excludedUsersLoading ? (
+                        <div className="flex justify-center py-8">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                        </div>
+                      ) : excludedUsers.length === 0 ? (
+                        <div className="text-center py-8 border rounded-lg bg-gray-50">
+                          <p className="text-gray-500">No users are currently excluded</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {excludedUsers.map((user: any) => (
+                            <div key={user.id} className="flex items-center justify-between p-3 border rounded-lg">
+                              <div>
+                                <p className="font-medium">{user.username}</p>
+                                <p className="text-xs text-gray-500">ID: {user.userId}</p>
+                                {user.reason && (
+                                  <p className="text-xs text-gray-500 mt-1">Reason: {user.reason}</p>
+                                )}
+                              </div>
+                              <Button 
+                                variant="ghost" 
+                                size="sm"
+                                className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => handleRemoveExcludedUser(user.userId)}
+                                disabled={isRemovingUser === user.userId}
+                              >
+                                {isRemovingUser === user.userId ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  "Remove"
+                                )}
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
               
               <TabsContent value="general">
                 <Card className="mb-6">

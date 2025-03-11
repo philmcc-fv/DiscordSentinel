@@ -733,7 +733,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userId,
         guildId,
         username: username || userId,
-        excludedAt: new Date()
+        reason: `Manually excluded on ${new Date().toLocaleString()}`
       });
       
       log(`User ${excludedUser.username} (${excludedUser.userId}) has been excluded from analysis in guild ${guildId}`);
