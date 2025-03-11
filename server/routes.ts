@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
-import { processMessage, startBot, setupMessageListeners } from "./discord-bot";
+import { processMessage, startBot, setupMessageListeners, fetchHistoricalMessages } from "./discord-bot";
 import { format, subDays, parseISO } from "date-fns";
 import { discordAPI } from "./discord-api";
 import { log } from "./vite";
@@ -119,9 +119,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required data" });
       }
       
+      // Check if the channel was previously monitored
+      const wasMonitored = await storage.isChannelMonitored(channelId);
+      
+      // Update the monitoring status
       await storage.setChannelMonitored(channelId, guildId, monitor);
-      res.json({ success: true });
+      
+      // If the channel is being set to monitored for the first time, fetch historical messages
+      if (monitor && !wasMonitored) {
+        log(`🔍 Channel ${channelId} is being monitored for the first time. Fetching historical messages...`);
+        
+        // Fetch historical messages in the background
+        fetchHistoricalMessages(channelId, 100)
+          .then(result => {
+            if (result.success) {
+              log(`✅ Successfully fetched and processed ${result.count} historical messages from channel ${channelId}`);
+            } else {
+              log(`❌ Failed to fetch historical messages: ${result.message}`, 'error');
+            }
+          })
+          .catch(error => {
+            log(`❌ Error fetching historical messages: ${error instanceof Error ? error.message : String(error)}`, 'error');
+          });
+        
+        // Return a response indicating that historical messages are being fetched
+        res.json({ 
+          success: true,
+          message: "Channel monitoring updated. Historical messages are being fetched and analyzed in the background."
+        });
+      } else {
+        // Just return success if we're not fetching historical messages
+        res.json({ success: true });
+      }
     } catch (error) {
+      log(`❌ Error updating channel monitoring: ${error instanceof Error ? error.message : String(error)}`, 'error');
       res.status(500).json({ error: "Failed to update channel monitoring" });
     }
   });
@@ -436,6 +467,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Check Discord connection
+  // Manually fetch historical messages for a specific channel
+  app.post("/api/channels/fetch-history", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { channelId, limit } = req.body;
+      
+      if (!channelId) {
+        return res.status(400).json({ error: "Channel ID is required" });
+      }
+      
+      // Verify that the channel is monitored
+      const isMonitored = await storage.isChannelMonitored(channelId);
+      if (!isMonitored) {
+        return res.status(400).json({ 
+          error: "Channel is not being monitored. Please enable monitoring for this channel first." 
+        });
+      }
+      
+      // Start fetching historical messages in the background
+      log(`📚 Manual request to fetch historical messages for channel ${channelId}`);
+      
+      // Use a Promise to fetch messages in the background but still provide immediate feedback
+      fetchHistoricalMessages(channelId, limit || 100)
+        .then(result => {
+          if (result.success) {
+            log(`✅ Successfully fetched and processed ${result.count} historical messages from channel ${channelId}`);
+          } else {
+            log(`❌ Failed to fetch historical messages: ${result.message}`, 'error');
+          }
+        })
+        .catch(error => {
+          log(`❌ Error fetching historical messages: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        });
+      
+      // Return success immediately so the UI doesn't hang
+      res.json({ 
+        success: true, 
+        message: "Historical message fetching has been initiated in the background."
+      });
+    } catch (error) {
+      log(`❌ Error initiating historical message fetch: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ error: "Failed to initiate historical message fetching" });
+    }
+  });
+  
   app.post("/api/bot/check-connection", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     

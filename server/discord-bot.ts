@@ -185,6 +185,138 @@ export function setupMessageListeners(client: Client): void {
 }
 
 /**
+ * Fetch historical messages from a Discord channel and process them
+ * @param channelId The channel ID to fetch messages from
+ * @param limit The maximum number of messages to fetch (default: 100, max: 100 per request)
+ */
+export async function fetchHistoricalMessages(channelId: string, limit: number = 100): Promise<{success: boolean, count: number, message?: string}> {
+  try {
+    log(`📚 Starting historical message fetch for channel ${channelId}`, 'debug');
+    
+    // Get the Discord client
+    const client = discordAPI.getClient();
+    if (!client || !client.isReady()) {
+      log('❌ Discord client not ready, cannot fetch historical messages', 'error');
+      return { 
+        success: false, 
+        count: 0,
+        message: 'Discord client not ready. Please ensure the bot is properly connected.' 
+      };
+    }
+    
+    // Get the channel
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel || !('messages' in channel)) {
+        log(`❌ Channel ${channelId} not found or is not a text channel`, 'error');
+        return { 
+          success: false, 
+          count: 0,
+          message: 'Channel not found or is not a text channel' 
+        };
+      }
+      
+      // Ensure it's a text channel
+      const textChannel = channel as TextChannel;
+      
+      log(`📥 Fetching up to ${limit} historical messages from channel #${textChannel.name}`, 'debug');
+      
+      // Fetch messages
+      let messages: Collection<string, Message>;
+      try {
+        messages = await textChannel.messages.fetch({ limit: Math.min(limit, 100) });
+        log(`📥 Successfully fetched ${messages.size} messages from channel #${textChannel.name}`, 'debug');
+      } catch (fetchError) {
+        log(`❌ Error fetching messages: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`, 'error');
+        return { 
+          success: false, 
+          count: 0,
+          message: `Error fetching messages: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}` 
+        };
+      }
+      
+      if (messages.size === 0) {
+        log(`ℹ️ No messages found in channel #${textChannel.name}`, 'debug');
+        return { 
+          success: true, 
+          count: 0,
+          message: 'No messages found in this channel' 
+        };
+      }
+      
+      // Process each message
+      log(`🔄 Processing ${messages.size} historical messages`, 'debug');
+      let processedCount = 0;
+      let errorCount = 0;
+      
+      // Convert collection to array for easier processing with delays
+      const messageArray = Array.from(messages.values());
+      
+      // Use a more controlled loop to handle rate limits
+      for (let i = 0; i < messageArray.length; i++) {
+        const message = messageArray[i];
+        
+        // Skip bot messages
+        if (message.author.bot) {
+          continue;
+        }
+        
+        try {
+          // Process the message
+          await processMessage({
+            id: message.id,
+            channelId: channelId,
+            userId: message.author.id,
+            username: message.author.username,
+            content: message.content,
+            createdAt: message.createdAt
+          });
+          
+          processedCount++;
+          
+          // Add a small delay every few messages to avoid rate limiting
+          if (i % 5 === 0 && i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+          // Add longer delay every 20 messages to respect OpenAI rate limits
+          if (i % 20 === 0 && i > 0) {
+            log(`⏱️ Adding delay to respect API rate limits after processing ${i} messages`, 'debug');
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          }
+        } catch (processError) {
+          log(`❌ Error processing historical message ${message.id}: ${processError instanceof Error ? processError.message : String(processError)}`, 'error');
+          errorCount++;
+        }
+      }
+      
+      log(`✅ Finished processing historical messages. Processed: ${processedCount}, Errors: ${errorCount}`);
+      
+      return {
+        success: true,
+        count: processedCount,
+        message: `Successfully processed ${processedCount} historical messages from channel #${textChannel.name}`
+      };
+      
+    } catch (channelError) {
+      log(`❌ Error accessing channel: ${channelError instanceof Error ? channelError.message : String(channelError)}`, 'error');
+      return { 
+        success: false, 
+        count: 0,
+        message: `Error accessing channel: ${channelError instanceof Error ? channelError.message : String(channelError)}` 
+      };
+    }
+  } catch (error) {
+    log(`❌ Error in fetchHistoricalMessages: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    return { 
+      success: false, 
+      count: 0,
+      message: `Error fetching historical messages: ${error instanceof Error ? error.message : String(error)}` 
+    };
+  }
+}
+
+/**
  * Start the Discord bot with the provided token
  */
 export async function startBot(token: string, guildId: string): Promise<{success: boolean, message?: string}> {
