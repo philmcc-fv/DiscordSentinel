@@ -70,6 +70,7 @@ export interface IStorage {
 
   // Bot settings
   getBotSettings(guildId: string): Promise<BotSettings | undefined>;
+  getAllBotSettings(): Promise<BotSettings[]>;
   createOrUpdateBotSettings(settings: InsertBotSettings): Promise<BotSettings>;
 
   // Analytics
@@ -260,6 +261,13 @@ export class DatabaseStorage implements IStorage {
       .where(eq(botSettings.guildId, guildId));
     
     return settings;
+  }
+
+  async getAllBotSettings(): Promise<BotSettings[]> {
+    return db
+      .select()
+      .from(botSettings)
+      .orderBy(desc(botSettings.updatedAt));
   }
 
   async createOrUpdateBotSettings(settings: InsertBotSettings): Promise<BotSettings> {

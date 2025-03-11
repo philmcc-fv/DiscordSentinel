@@ -140,11 +140,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
     try {
-      // For now, if there's no specific guildId, we'll return all settings or an empty object
-      // This is a simplified approach - in a production app, you might want to return the most recently used guild
-      const defaultGuildId = process.env.DEFAULT_GUILD_ID || "default";
-      const settings = await storage.getBotSettings(defaultGuildId);
-      res.json(settings || {});
+      // Get all settings
+      const allSettings = await storage.getAllBotSettings();
+      // Return the first (most recent) settings or an empty object
+      res.json(allSettings.length > 0 ? allSettings[0] : {});
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bot settings" });
     }
