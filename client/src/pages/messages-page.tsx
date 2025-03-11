@@ -103,11 +103,15 @@ export default function MessagesPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Channels</SelectItem>
-                      {channels?.map((channel: any) => (
-                        <SelectItem key={channel.id} value={channel.id}>
-                          {channel.name}
-                        </SelectItem>
-                      ))}
+                      {channels && channels.length > 0 ? (
+                        channels.map((channel: any) => (
+                          <SelectItem key={channel.id} value={channel.id}>
+                            {channel.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="none" disabled>No channels available</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>

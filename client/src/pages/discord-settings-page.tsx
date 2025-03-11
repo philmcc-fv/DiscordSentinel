@@ -333,17 +333,23 @@ export default function DiscordSettingsPage() {
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {monitoredChannels?.map((channel: any) => (
-                          <div key={channel.id} className="flex items-center space-x-2 p-2 border rounded">
-                            <Checkbox id={`channel-${channel.id}`} />
-                            <label
-                              htmlFor={`channel-${channel.id}`}
-                              className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                            >
-                              #{channel.name}
-                            </label>
+                        {monitoredChannels && monitoredChannels.length > 0 ? (
+                          monitoredChannels.map((channel: any) => (
+                            <div key={channel.id} className="flex items-center space-x-2 p-2 border rounded">
+                              <Checkbox id={`channel-${channel.id}`} />
+                              <label
+                                htmlFor={`channel-${channel.id}`}
+                                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                              >
+                                #{channel.name}
+                              </label>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-4 text-gray-500">
+                            No channels available. Add channels to your Discord server and they will appear here.
                           </div>
-                        ))}
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -362,30 +368,37 @@ export default function DiscordSettingsPage() {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <FormField
-                      control={form.control}
-                      name="notificationsEnabled"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-0.5">
-                            <FormLabel className="text-base">Enable Notifications</FormLabel>
-                            <FormDescription>
-                              Receive notifications for important events
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
+                    <Form {...form}>
+                      <form onSubmit={form.handleSubmit(onSubmit)}>
+                        <FormField
+                          control={form.control}
+                          name="notificationsEnabled"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                              <div className="space-y-0.5">
+                                <FormLabel className="text-base">Enable Notifications</FormLabel>
+                                <FormDescription>
+                                  Receive notifications for important events
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <div className="mt-4 flex justify-end">
+                          <Button type="submit">
+                            <Save className="mr-2 h-4 w-4" />
+                            Save Notification Settings
+                          </Button>
+                        </div>
+                      </form>
+                    </Form>
                   </CardContent>
-                  <CardFooter>
-                    <Button type="submit" onClick={form.handleSubmit(onSubmit)}>Save Notification Settings</Button>
-                  </CardFooter>
                 </Card>
               </TabsContent>
             </Tabs>
