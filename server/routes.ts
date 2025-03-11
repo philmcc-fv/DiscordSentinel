@@ -173,15 +173,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // If no channels found and we're not in production, create test channels
-      if (channels.length === 0) {
-        if (process.env.NODE_ENV !== 'production') {
-          const testChannels = [
-            { id: 1, channelId: 'test-channel-1', name: 'general', guildId, guildName: 'Your Server', isMonitored: monitoredChannelIds.includes('test-channel-1') },
-            { id: 2, channelId: 'test-channel-2', name: 'announcements', guildId, guildName: 'Your Server', isMonitored: monitoredChannelIds.includes('test-channel-2') },
-            { id: 3, channelId: 'test-channel-3', name: 'random', guildId, guildName: 'Your Server', isMonitored: monitoredChannelIds.includes('test-channel-3') }
-          ];
-          return res.json(testChannels);
+      // We should never use test channels in a production app, always try to refresh channels from Discord
+      if (channels.length === 0 && token) {
+        // Attempt to reload channels by re-initializing the Discord API
+        console.log("No channels found, attempting to refresh from Discord...");
+        
+        // Force re-initialization
+        await discordAPI.initialize(token, true);
+        
+        // Try to get channels again
+        const freshDiscordChannels = await discordAPI.getChannels(guildId);
+        
+        if (freshDiscordChannels.length > 0) {
+          console.log(`Found ${freshDiscordChannels.length} channels from Discord`);
+          
+          // Save the channels to our database
+          for (const channel of freshDiscordChannels) {
+            await storage.createChannel(channel);
+          }
+          
+          // Refresh our local list
+          channels = await storage.getChannels();
+        } else {
+          console.log("Still no channels found from Discord");
         }
       }
       
