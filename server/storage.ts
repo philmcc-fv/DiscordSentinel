@@ -308,24 +308,32 @@ export class DatabaseStorage implements IStorage {
 
   async excludeUser(userData: InsertExcludedUser): Promise<ExcludedUser> {
     try {
-      const [excludedUser] = await db
-        .insert(excludedUsers)
-        .values(userData)
-        .returning();
-      return excludedUser;
+      // Convert to snake_case for the raw SQL query
+      const query = `
+        INSERT INTO excluded_users (user_id, guild_id, username, reason)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, user_id as "userId", guild_id as "guildId", username, reason, created_at as "createdAt"
+      `;
+      
+      const { rows } = await sql.query(query, [
+        userData.userId,
+        userData.guildId,
+        userData.username,
+        userData.reason || null
+      ]);
+      
+      return rows[0];
     } catch (error) {
       // If there's a duplicate, just return the existing user
       if (error instanceof Error && error.message.includes('duplicate key')) {
-        const [existingUser] = await db
-          .select()
-          .from(excludedUsers)
-          .where(
-            and(
-              eq(excludedUsers.userId, userData.userId),
-              eq(excludedUsers.guildId, userData.guildId)
-            )
-          );
-        return existingUser;
+        const query = `
+          SELECT id, user_id as "userId", guild_id as "guildId", username, reason, created_at as "createdAt"
+          FROM excluded_users
+          WHERE user_id = $1 AND guild_id = $2
+        `;
+        
+        const { rows } = await sql.query(query, [userData.userId, userData.guildId]);
+        return rows[0];
       }
       throw error;
     }
