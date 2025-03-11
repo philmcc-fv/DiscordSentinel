@@ -149,7 +149,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Try to get real Discord channels if we have a token
       if (token) {
         // Initialize Discord API with the token
-        const initialized = await discordAPI.initialize(token);
+        const initialized = await discordAPI.initialize(token, false);
         
         if (initialized) {
           // Get real channels from Discord

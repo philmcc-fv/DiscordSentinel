@@ -33,16 +33,18 @@ class DiscordAPI {
     });
   }
 
-  async initialize(token: string): Promise<boolean> {
-    if (this.isInitialized && token === this.token) {
+  async initialize(token: string, force: boolean = false): Promise<boolean> {
+    if (this.isInitialized && token === this.token && !force) {
       return true;
     }
 
-    // If we have a different token or not initialized
+    // If we have a different token, force reinitialize, or not initialized
     try {
       if (this.client.isReady()) {
+        console.log("Destroying existing Discord client connection...");
         await this.client.destroy();
         this.hasSetupListeners = false;
+        this.isInitialized = false;
       }
 
       this.token = token;
