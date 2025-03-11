@@ -311,6 +311,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to start Discord bot" });
     }
   });
+  
+  // Stop the Discord bot manually
+  app.post("/api/bot/stop", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the latest bot settings
+      const allSettings = await storage.getAllBotSettings();
+      if (allSettings.length === 0) {
+        return res.status(400).json({ error: "Discord bot settings not found" });
+      }
+      
+      // Disconnect the bot
+      if (discordAPI.isReady()) {
+        await discordAPI.getClient().destroy();
+        
+        // Update the settings to mark the bot as inactive
+        await storage.createOrUpdateBotSettings({
+          ...allSettings[0],
+          isActive: false
+        });
+        
+        res.json({ success: true, message: "Discord bot stopped successfully" });
+      } else {
+        // Bot wasn't running, just update the settings
+        await storage.createOrUpdateBotSettings({
+          ...allSettings[0],
+          isActive: false
+        });
+        
+        res.json({ success: true, message: "Discord bot was not running" });
+      }
+    } catch (error) {
+      console.error("Error stopping Discord bot:", error);
+      res.status(500).json({ error: "Failed to stop Discord bot" });
+    }
+  });
 
   const httpServer = createServer(app);
   return httpServer;

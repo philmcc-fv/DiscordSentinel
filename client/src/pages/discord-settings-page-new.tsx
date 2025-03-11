@@ -7,7 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, RotateCw } from "lucide-react";
+import { Loader2, Save, RotateCw, Play, Square } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -217,6 +217,39 @@ export default function DiscordSettingsPage() {
       }
     });
   };
+  
+  // Stop bot mutation
+  const [isStoppingBot, setIsStoppingBot] = useState(false);
+  
+  const stopBotMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/bot/stop");
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/bot/settings"] });
+      toast({
+        title: "Bot stopped",
+        description: data.message || "The Discord bot has been stopped successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to stop bot",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const handleStopBot = () => {
+    setIsStoppingBot(true);
+    stopBotMutation.mutate(undefined, {
+      onSettled: () => {
+        setIsStoppingBot(false);
+      }
+    });
+  };
 
   return (
     <div className="flex flex-col md:flex-row min-h-screen w-full bg-gray-50">
@@ -337,19 +370,35 @@ export default function DiscordSettingsPage() {
                       Test Connection
                     </Button>
                     
-                    <Button 
-                      variant="outline"
-                      onClick={handleStartBot}
-                      disabled={isStartingBot || !token || !guildId || startBotMutation.isPending}
-                      className="bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-700 border-green-200"
-                    >
-                      {isStartingBot || startBotMutation.isPending ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Play className="mr-2 h-4 w-4" />
-                      )}
-                      Start Bot
-                    </Button>
+                    {botSettings?.isActive ? (
+                      <Button 
+                        variant="outline"
+                        onClick={handleStopBot}
+                        disabled={isStoppingBot || stopBotMutation.isPending}
+                        className="bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 border-red-200"
+                      >
+                        {isStoppingBot || stopBotMutation.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Square className="mr-2 h-4 w-4" />
+                        )}
+                        Stop Bot
+                      </Button>
+                    ) : (
+                      <Button 
+                        variant="outline"
+                        onClick={handleStartBot}
+                        disabled={isStartingBot || !token || !guildId || startBotMutation.isPending}
+                        className="bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-700 border-green-200"
+                      >
+                        {isStartingBot || startBotMutation.isPending ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Play className="mr-2 h-4 w-4" />
+                        )}
+                        Start Bot
+                      </Button>
+                    )}
                     
                     <Button 
                       onClick={handleSaveSettings}

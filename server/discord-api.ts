@@ -111,23 +111,62 @@ class DiscordAPI {
         };
       }
 
+      log(`Discord bot logged in successfully, checking guild access...`);
+
       // Try to access the guild
       const guild = await this.getGuild(guildId);
       if (!guild) {
         return { 
           success: false, 
-          message: "Bot authenticated but could not access the specified server. Please check the Guild ID and ensure the bot has been invited to the server."
+          message: "Bot authenticated but could not access the specified server. Common issues: 1) The server ID is incorrect 2) The bot hasn't been invited to the server with proper permissions 3) The bot token is for a different bot"
         };
       }
 
-      return { 
-        success: true, 
-        message: `Successfully connected to Discord server: ${guild.name}` 
-      };
+      // Get more details about accessible channels
+      try {
+        const channels = await guild.channels.fetch();
+        const accessibleTextChannels = channels.filter(channel => 
+          channel && channel.isTextBased() && 
+          channel.permissionsFor(this.client.user!)?.has([
+            PermissionsBitField.Flags.ViewChannel,
+            PermissionsBitField.Flags.ReadMessageHistory
+          ])
+        );
+
+        const channelCount = accessibleTextChannels.size;
+        
+        return { 
+          success: true, 
+          message: `Successfully connected to Discord server: ${guild.name} (${channelCount} accessible text channels)` 
+        };
+      } catch (channelError) {
+        // We could connect to the guild but had issues with channel permissions
+        log(`Could not fetch channels: ${channelError instanceof Error ? channelError.message : String(channelError)}`, 'error');
+        return { 
+          success: true, 
+          message: `Connected to server: ${guild.name}, but could not access channel list. Please check bot permissions.` 
+        };
+      }
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log(`Error testing Discord connection: ${errorMessage}`, 'error');
+      
+      // Provide more user-friendly error messages
+      if (errorMessage.includes("Unknown Guild")) {
+        return {
+          success: false,
+          message: "The Discord server ID you provided could not be found. Please double-check the ID and make sure the bot has been invited to the server."
+        };
+      } else if (errorMessage.includes("Invalid token")) {
+        return {
+          success: false,
+          message: "The Discord bot token you provided is invalid. Please check the token and try again."
+        };
+      }
+      
       return { 
         success: false, 
-        message: `Connection test failed: ${error instanceof Error ? error.message : String(error)}` 
+        message: `Connection test failed: ${errorMessage}` 
       };
     }
   }
