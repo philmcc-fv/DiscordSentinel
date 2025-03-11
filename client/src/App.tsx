@@ -6,7 +6,7 @@ import NotFound from "@/pages/not-found";
 import HomePage from "@/pages/home-page";
 import TrendsPage from "@/pages/trends-page";
 import MessagesPage from "@/pages/messages-page";
-import DiscordSettingsPage from "@/pages/discord-settings-page";
+import DiscordSettingsPage from "@/pages/discord-settings-page-new";
 import AuthPage from "@/pages/auth-page";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
