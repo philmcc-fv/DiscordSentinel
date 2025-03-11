@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { setupAuth } from "./auth";
 import { processMessage } from "./discord-bot";
 import { format, subDays, parseISO } from "date-fns";
+import { discordAPI } from "./discord-api";
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -136,16 +137,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Use the first guild ID from settings
       const guildId = allSettings[0].guildId;
+      const token = allSettings[0].token;
+      
       if (!guildId) {
         return res.json([]);
       }
       
-      // Get channels for this guild
-      const channels = await storage.getChannels();
+      let channels = await storage.getChannels();
       const monitoredChannelIds = await storage.getMonitoredChannels(guildId);
       
+      // Try to get real Discord channels if we have a token
+      if (token) {
+        // Initialize Discord API with the token
+        const initialized = await discordAPI.initialize(token);
+        
+        if (initialized) {
+          // Get real channels from Discord
+          const discordChannels = await discordAPI.getChannels(guildId);
+          
+          if (discordChannels.length > 0) {
+            // Save any new channels to our database
+            for (const channel of discordChannels) {
+              // Check if this channel exists in our database
+              const existingChannel = channels.find(c => c.channelId === channel.channelId);
+              
+              if (!existingChannel) {
+                // Save the new channel
+                await storage.createChannel(channel);
+              }
+            }
+            
+            // Refresh our channel list with the newly saved channels
+            channels = await storage.getChannels();
+          }
+        }
+      }
+      
+      // If no channels found and we're not in production, create test channels
       if (channels.length === 0) {
-        // If real channels can't be fetched, create a temporary one for testing
         if (process.env.NODE_ENV !== 'production') {
           const testChannels = [
             { id: 1, channelId: 'test-channel-1', name: 'general', guildId, guildName: 'Your Server', isMonitored: monitoredChannelIds.includes('test-channel-1') },
@@ -235,9 +264,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "No Discord token configured" });
       }
       
-      // For now, we'll just return success since we're not actually connecting to Discord yet
-      // In a real implementation, we would validate the token against the Discord API
-      res.json({ success: true, message: "Connection successful" });
+      // Use the Discord API to test the connection
+      const token = allSettings[0].token;
+      const guildId = allSettings[0].guildId;
+      
+      const result = await discordAPI.testConnection(token, guildId);
+      res.json(result);
     } catch (error) {
       console.error("Error checking Discord connection:", error);
       res.status(500).json({ error: "Failed to check Discord connection" });
