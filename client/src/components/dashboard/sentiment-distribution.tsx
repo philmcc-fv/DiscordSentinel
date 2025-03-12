@@ -92,7 +92,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#10B981] h-2.5 rounded-full" 
+                className="bg-sentiment-vpositive h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(very_positive)) }}
               ></div>
             </div>
@@ -107,7 +107,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#34D399] h-2.5 rounded-full" 
+                className="bg-sentiment-positive h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(positive)) }}
               ></div>
             </div>
@@ -122,7 +122,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#9CA3AF] h-2.5 rounded-full" 
+                className="bg-sentiment-neutral h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(neutral)) }}
               ></div>
             </div>
@@ -137,7 +137,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#F87171] h-2.5 rounded-full" 
+                className="bg-sentiment-negative h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(negative)) }}
               ></div>
             </div>
@@ -152,7 +152,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#EF4444] h-2.5 rounded-full" 
+                className="bg-sentiment-vnegative h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(very_negative)) }}
               ></div>
             </div>
