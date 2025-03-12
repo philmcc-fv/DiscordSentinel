@@ -15,6 +15,7 @@ interface RecentMessagesProps {
 const RecentMessages: FC<RecentMessagesProps> = ({ limit = 5 }) => {
   const { data, isLoading, error } = useQuery<DiscordMessage[]>({
     queryKey: ["/api/recent-messages", { limit }],
+    refetchInterval: 10000, // Refresh every 10 seconds
   });
 
   const renderMessageItem = (message: DiscordMessage) => {

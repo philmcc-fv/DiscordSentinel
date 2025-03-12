@@ -46,7 +46,8 @@ const SentimentChart: FC<SentimentChartProps> = ({ onDataPointClick }) => {
         throw new Error('Failed to fetch sentiment data');
       }
       return response.json();
-    }
+    },
+    refetchInterval: 15000 // Refresh every 15 seconds
   });
 
   // Convert API data to chart data

@@ -11,6 +11,7 @@ interface SentimentDistributionProps {
 const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) => {
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/distribution", { days }],
+    refetchInterval: 15000, // Refresh every 15 seconds
   });
 
   if (isLoading) {
