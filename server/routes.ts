@@ -7,6 +7,7 @@ import { format, subDays, parseISO } from "date-fns";
 import { discordAPI } from "./discord-api";
 import { log } from "./vite";
 import { analyzeSentiment } from "./openai";
+import { GuildChannel } from "discord.js";
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -519,7 +520,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         if (textChannel.guild) {
           const botMember = await textChannel.guild.members.fetch(client.user!.id);
-          const botPermissions = textChannel.permissionsFor(botMember);
+          // Use type assertion to clarify that this is a GuildChannel with permissionsFor
+          const botPermissions = (textChannel as GuildChannel).permissionsFor(botMember);
           
           // Check for required permissions
           const requiredPermissions = [
@@ -617,13 +619,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // as permissionsFor is only available on GuildChannels 
           if ('permissionsFor' in channel) {
             // Check for VIEW_CHANNEL permission
-            if (!(channel as any).permissionsFor(client.user)?.has("ViewChannel")) {
+            if (!(channel as GuildChannel).permissionsFor(client.user)?.has("ViewChannel")) {
               missingPermissions.push("View Channel");
               hasViewAccess = false;
             }
             
             // Check for READ_MESSAGE_HISTORY permission
-            if (!(channel as any).permissionsFor(client.user)?.has("ReadMessageHistory")) {
+            if (!(channel as GuildChannel).permissionsFor(client.user)?.has("ReadMessageHistory")) {
               missingPermissions.push("Read Message History");
               hasHistoryAccess = false;
             }
