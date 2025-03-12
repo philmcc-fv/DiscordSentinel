@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2, Save, RotateCw, Play, Square, HelpCircle, AlertCircle, Shield, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { ChannelPermissionStatus } from "@/components/discord/channel-permission-status";
 import { PermissionInstructions } from "@/components/discord/permission-instructions";
+import { SetupGuide } from "@/components/discord/setup-guide";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
