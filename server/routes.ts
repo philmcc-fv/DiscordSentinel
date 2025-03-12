@@ -573,6 +573,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Check Discord connection
+  // Check channel permissions for the bot
+  app.get("/api/channels/:channelId/permissions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const channelId = req.params.channelId;
+      
+      if (!channelId) {
+        return res.status(400).json({ error: "Channel ID is required" });
+      }
+
+      // Get Discord client
+      if (!discordAPI.isReady()) {
+        return res.status(400).json({ 
+          hasPermissions: false, 
+          missingPermissions: ["Bot not connected"],
+          error: "Bot is not currently connected to Discord"
+        });
+      }
+      
+      const client = discordAPI.getClient();
+      
+      try {
+        // Try to fetch the channel to check permissions
+        const channel = await client.channels.fetch(channelId);
+        
+        if (!channel) {
+          return res.json({ 
+            hasPermissions: false, 
+            missingPermissions: ["Cannot access channel"],
+            error: "Channel not found or bot cannot access it" 
+          });
+        }
+        
+        // For text channels, check specific permissions
+        if (channel.isTextBased()) {
+          const missingPermissions = [];
+          let hasViewAccess = true;
+          let hasHistoryAccess = true;
+          
+          // Check for VIEW_CHANNEL permission
+          if (!channel.permissionsFor(client.user)?.has("ViewChannel")) {
+            missingPermissions.push("View Channel");
+            hasViewAccess = false;
+          }
+          
+          // Check for READ_MESSAGE_HISTORY permission
+          if (!channel.permissionsFor(client.user)?.has("ReadMessageHistory")) {
+            missingPermissions.push("Read Message History");
+            hasHistoryAccess = false;
+          }
+          
+          if (missingPermissions.length === 0) {
+            return res.json({ hasPermissions: true, missingPermissions: [] });
+          } else {
+            return res.json({ 
+              hasPermissions: false, 
+              missingPermissions,
+              error: "Bot lacks necessary permissions" 
+            });
+          }
+        } else {
+          return res.json({ 
+            hasPermissions: false, 
+            missingPermissions: ["Not a text channel"],
+            error: "The selected channel is not a text channel"
+          });
+        }
+      } catch (error) {
+        log(`Error checking channel permissions: ${error instanceof Error ? error.message : String(error)}`, 'error');
+        return res.json({ 
+          hasPermissions: false, 
+          missingPermissions: ["Cannot access channel"],
+          error: "Failed to access channel, likely due to permission issues" 
+        });
+      }
+      
+    } catch (error) {
+      log(`Error in permissions check API: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ 
+        hasPermissions: false,
+        missingPermissions: ["Server error"],
+        error: "Failed to check permissions" 
+      });
+    }
+  });
+
   // Manually fetch historical messages for a specific channel
   app.post("/api/channels/fetch-history", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
