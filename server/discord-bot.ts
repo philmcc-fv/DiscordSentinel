@@ -51,6 +51,17 @@ export async function processMessage(message: DiscordMessage): Promise<void> {
       }
     }
 
+    // Check if message already exists in the database
+    const existingMessages = await db.select({ id: discordMessages.id })
+      .from(discordMessages)
+      .where(eq(discordMessages.messageId, message.id))
+      .limit(1);
+
+    if (existingMessages && existingMessages.length > 0) {
+      log(`⏩ Skipping message ${message.id} - already exists in database`, 'debug');
+      return;
+    }
+
     log(`🧠 Analyzing sentiment for message ID ${message.id}: "${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}"`, 'debug');
     
     // Analyze sentiment using OpenAI

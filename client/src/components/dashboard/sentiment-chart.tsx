@@ -11,6 +11,20 @@ interface SentimentChartProps {
   onDataPointClick: (date: string) => void;
 }
 
+// Type definitions for the sentiment data
+interface SentimentDataPoint {
+  date: string;
+  averageSentiment: number;
+  messageCount: number;
+  sentimentCounts: {
+    very_positive: number;
+    positive: number;
+    neutral: number;
+    negative: number;
+    very_negative: number;
+  };
+}
+
 type TimeRange = "week" | "month" | "quarter" | "year";
 
 const timeRangeToDays = {
@@ -23,8 +37,16 @@ const timeRangeToDays = {
 const SentimentChart: FC<SentimentChartProps> = ({ onDataPointClick }) => {
   const [timeRange, setTimeRange] = useState<TimeRange>("month");
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["/api/sentiment", { days: timeRangeToDays[timeRange] }],
+  // Use the days parameter in the query key and request
+  const { data, isLoading, error, refetch } = useQuery<SentimentDataPoint[]>({
+    queryKey: ["/api/sentiment", timeRange],
+    queryFn: async () => {
+      const response = await fetch(`/api/sentiment?days=${timeRangeToDays[timeRange]}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch sentiment data');
+      }
+      return response.json();
+    }
   });
 
   // Convert API data to chart data
@@ -44,11 +66,11 @@ const SentimentChart: FC<SentimentChartProps> = ({ onDataPointClick }) => {
     }
 
     return {
-      labels: data.map((d: any) => formatDate(d.date, 'MMM d')),
+      labels: data.map((d) => formatDate(d.date, 'MMM d')),
       datasets: [
         {
           label: 'Average Sentiment',
-          data: data.map((d: any) => d.averageSentiment),
+          data: data.map((d) => d.averageSentiment),
           borderColor: '#3B82F6',
           backgroundColor: 'rgba(59, 130, 246, 0.5)',
           tension: 0.1,
@@ -105,6 +127,7 @@ const SentimentChart: FC<SentimentChartProps> = ({ onDataPointClick }) => {
     }
   };
 
+  // Function to change time range and refetch data
   const changeTimeRange = (range: TimeRange) => {
     setTimeRange(range);
   };

@@ -518,6 +518,8 @@ export class DatabaseStorage implements IStorage {
     avgSentiment: string;
     activeUsers: number;
     messageGrowth: number;
+    sentimentGrowth: number;
+    userGrowth: number;
   }> {
     // Get total messages
     const [{ value: totalMessages }] = await db
@@ -529,7 +531,7 @@ export class DatabaseStorage implements IStorage {
     const startDate = subDays(endDate, 30);
     const recentMessages = await this.getMessagesByDateRange(startDate, endDate);
     
-    // Calculate avg sentiment
+    // Calculate avg sentiment for current period
     let sentimentSum = 0;
     const userSet = new Set<string>();
     
@@ -550,23 +552,51 @@ export class DatabaseStorage implements IStorage {
     else if (avgSentimentScore >= 0.5) avgSentiment = 'Negative';
     else avgSentiment = 'Very Negative';
     
-    // Count active users
+    // Count active users in current period
     const activeUsers = userSet.size;
     
-    // Calculate message growth (comparing last 30 days to previous 30 days)
+    // Calculate data for previous period
     const prevPeriodStart = subDays(startDate, 30);
     const prevMessages = await this.getMessagesByDateRange(prevPeriodStart, startDate);
     
+    // Calculate message growth
     let messageGrowth = 0;
     if (prevMessages.length > 0) {
       messageGrowth = ((recentMessages.length - prevMessages.length) / prevMessages.length) * 100;
+    }
+    
+    // Calculate sentiment growth
+    let prevSentimentSum = 0;
+    const prevUserSet = new Set<string>();
+    
+    for (const message of prevMessages) {
+      prevSentimentSum += message.sentimentScore;
+      prevUserSet.add(message.userId);
+    }
+    
+    const prevAvgSentimentScore = prevMessages.length > 0 
+      ? prevSentimentSum / prevMessages.length 
+      : 2; // Default to neutral
+    
+    let sentimentGrowth = 0;
+    if (prevAvgSentimentScore > 0) {
+      sentimentGrowth = ((avgSentimentScore - prevAvgSentimentScore) / prevAvgSentimentScore) * 100;
+    }
+    
+    // Calculate user growth
+    const prevActiveUsers = prevUserSet.size;
+    let userGrowth = 0;
+    if (prevActiveUsers > 0) {
+      userGrowth = ((activeUsers - prevActiveUsers) / prevActiveUsers) * 100;
     }
     
     return {
       totalMessages,
       avgSentiment,
       activeUsers,
-      messageGrowth
+      messageGrowth,
+      sentimentGrowth,
+      userGrowth
     };
   }
 }

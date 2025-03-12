@@ -1,21 +1,31 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "@/components/dashboard/sidebar";
 import MetricCard from "@/components/dashboard/metric-card";
 import SentimentChart from "@/components/dashboard/sentiment-chart";
 import SentimentDistribution from "@/components/dashboard/sentiment-distribution";
 import RecentMessages from "@/components/dashboard/recent-messages";
 import MessageDetailModal from "@/components/dashboard/message-detail-modal";
-import { useQuery } from "@tanstack/react-query";
-import { MessageCircle, BarChart2, Users, Timer } from "lucide-react";
+import { useQuery, QueryClient } from "@tanstack/react-query";
+import { MessageCircle, BarChart2, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, RefreshCw } from "lucide-react";
+import { queryClient } from "@/lib/queryClient";
+
+type StatsResponse = {
+  totalMessages: number;
+  avgSentiment: string;
+  activeUsers: number;
+  messageGrowth: number;
+  sentimentGrowth: number;
+  userGrowth: number;
+};
 
 export default function HomePage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showMessageModal, setShowMessageModal] = useState(false);
 
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading } = useQuery<StatsResponse>({
     queryKey: ["/api/stats"],
   });
 
@@ -26,7 +36,10 @@ export default function HomePage() {
 
   const handleRefreshData = () => {
     // Invalidate queries to refresh data
-    window.location.reload();
+    queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/sentiment"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/distribution"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/recent-messages"] });
   };
 
   return (
@@ -64,41 +77,35 @@ export default function HomePage() {
         <div className="flex-1 overflow-auto pb-10">
           <div className="container mx-auto px-4 py-6 space-y-6">
             {/* Status Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 gap-6">
               <MetricCard
                 title="Analyzed Messages"
-                value={statsLoading ? "..." : stats?.totalMessages.toLocaleString()}
+                value={statsLoading ? "..." : (stats?.totalMessages || 0).toLocaleString()}
                 icon={<MessageCircle className="h-5 w-5 text-blue-500" />}
-                changeValue={statsLoading ? "..." : `${stats?.messageGrowth.toFixed(1)}%`}
-                changeLabel="from last week"
-                isPositiveChange={!statsLoading && stats?.messageGrowth > 0}
+                changeValue={statsLoading ? "..." : `${(stats?.messageGrowth || 0).toFixed(1)}%`}
+                changeLabel="from last month"
+                isPositiveChange={!statsLoading && (stats?.messageGrowth || 0) > 0}
                 isLoading={statsLoading}
               />
 
               <MetricCard
                 title="Average Sentiment"
-                value={statsLoading ? "..." : stats?.avgSentiment}
+                value={statsLoading ? "..." : (stats?.avgSentiment || "Neutral")}
                 icon={<BarChart2 className="h-5 w-5 text-green-500" />}
-                changeValue="0.7"
+                changeValue={statsLoading ? "..." : `${(stats?.sentimentGrowth || 0).toFixed(1)}%`}
                 changeLabel="from last month"
+                isPositiveChange={!statsLoading && (stats?.sentimentGrowth || 0) > 0}
                 isLoading={statsLoading}
               />
 
               <MetricCard
                 title="Active Users"
-                value={statsLoading ? "..." : stats?.activeUsers}
+                value={statsLoading ? "..." : (stats?.activeUsers || 0)}
                 icon={<Users className="h-5 w-5 text-purple-500" />}
-                changeValue="12.4%"
+                changeValue={statsLoading ? "..." : `${(stats?.userGrowth || 0).toFixed(1)}%`}
                 changeLabel="from last month"
+                isPositiveChange={!statsLoading && (stats?.userGrowth || 0) > 0}
                 isLoading={statsLoading}
-              />
-
-              <MetricCard
-                title="Server Uptime"
-                value="99.8%"
-                icon={<Timer className="h-5 w-5 text-yellow-500" />}
-                changeLabel="all systems normal"
-                isPositiveChange={true}
               />
             </div>
 
