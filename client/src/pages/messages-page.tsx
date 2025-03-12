@@ -1,5 +1,4 @@
 import Sidebar from "@/components/dashboard/sidebar";
-import RecentMessages from "@/components/dashboard/recent-messages";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { 
@@ -17,17 +16,35 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Filter } from "lucide-react";
+import { Search, Filter, MessageSquare } from "lucide-react";
 import { SentimentType } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
-import { getSentimentClass } from "@/lib/utils";
+import { 
+  getSentimentClass, 
+  getSentimentBorderClass, 
+  getInitials, 
+  formatDateTime 
+} from "@/lib/utils";
 
 export default function MessagesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSentiment, setSelectedSentiment] = useState<SentimentType | "all">("all");
   
+  const [selectedChannelId, setSelectedChannelId] = useState<string>("all");
+  const [isFiltering, setIsFiltering] = useState(false);
+  
   const { data: channels = [] } = useQuery<any[]>({
     queryKey: ["/api/channels"],
+  });
+
+  const { data: messages, isLoading, error, refetch } = useQuery<any[]>({
+    queryKey: ["/api/recent-messages", { 
+      limit: 50,
+      sentiment: selectedSentiment,
+      search: searchQuery,
+      channelId: selectedChannelId
+    }],
+    refetchInterval: 10000, // Refresh every 10 seconds
   });
 
   const sentimentOptions: { value: SentimentType | "all", label: string }[] = [
@@ -38,6 +55,11 @@ export default function MessagesPage() {
     { value: "negative", label: "Negative" },
     { value: "very_negative", label: "Very Negative" },
   ];
+  
+  const applyFilters = () => {
+    setIsFiltering(true);
+    refetch().then(() => setIsFiltering(false));
+  };
 
   return (
     <div className="flex flex-col md:flex-row min-h-screen w-full bg-gray-50">
@@ -97,7 +119,10 @@ export default function MessagesPage() {
                     </SelectContent>
                   </Select>
 
-                  <Select>
+                  <Select
+                    value={selectedChannelId}
+                    onValueChange={setSelectedChannelId}
+                  >
                     <SelectTrigger className="w-full">
                       <SelectValue placeholder="Filter by channel" />
                     </SelectTrigger>
@@ -105,7 +130,7 @@ export default function MessagesPage() {
                       <SelectItem value="all">All Channels</SelectItem>
                       {channels && channels.length > 0 ? (
                         channels.map((channel: any) => (
-                          <SelectItem key={channel.id} value={channel.id}>
+                          <SelectItem key={channel.channelId} value={channel.channelId}>
                             {channel.name}
                           </SelectItem>
                         ))
@@ -117,9 +142,13 @@ export default function MessagesPage() {
                 </div>
                 
                 <div className="flex justify-end mt-4">
-                  <Button className="flex items-center gap-2">
+                  <Button 
+                    className="flex items-center gap-2" 
+                    onClick={applyFilters}
+                    disabled={isFiltering}
+                  >
                     <Filter className="h-4 w-4" />
-                    Apply Filters
+                    {isFiltering ? 'Applying...' : 'Apply Filters'}
                   </Button>
                 </div>
               </CardContent>
@@ -131,7 +160,50 @@ export default function MessagesPage() {
                 <CardTitle>Message List</CardTitle>
               </CardHeader>
               <CardContent>
-                <RecentMessages limit={50} />
+                <div className="space-y-4 overflow-y-auto" style={{ maxHeight: "600px" }}>
+                  {isLoading ? (
+                    <div className="flex justify-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                    </div>
+                  ) : error ? (
+                    <div className="text-center py-8 text-red-500">
+                      <p>Error loading messages</p>
+                    </div>
+                  ) : messages && messages.length > 0 ? (
+                    messages.map((message: any) => (
+                      <div 
+                        key={message.id} 
+                        className={`p-3 rounded-lg border ${getSentimentBorderClass(message.sentiment as SentimentType)}`}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center">
+                            <div className="bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center mr-2">
+                              <span className="text-xs font-medium text-gray-600">
+                                {getInitials(message.username)}
+                              </span>
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium text-gray-800">{message.username}</p>
+                              <p className="text-xs text-gray-500">#{message.channelId}</p>
+                            </div>
+                          </div>
+                          <div>
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full bg-opacity-90 border border-gray-300 ${getSentimentClass(message.sentiment as SentimentType)}`}>
+                              {message.sentiment.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-sm mt-2 text-gray-700">{message.content}</p>
+                        <p className="text-xs text-gray-500 mt-1">{formatDateTime(message.createdAt.toString())}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <MessageSquare className="mx-auto h-12 w-12 text-gray-400 mb-2" />
+                      <p>No messages match your filters</p>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>

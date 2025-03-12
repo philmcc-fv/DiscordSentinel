@@ -39,11 +39,11 @@ export function getSentimentLabel(sentiment: SentimentType): string {
 }
 
 export function getSentimentClass(sentiment: SentimentType): string {
-  return `${sentimentMappings[sentiment].color} ${sentimentMappings[sentiment].textColor}`;
+  return `bg-sentiment-${sentiment.replace('very_', 'v')} text-white`;
 }
 
 export function getSentimentBorderClass(sentiment: SentimentType): string {
-  return sentimentMappings[sentiment].border;
+  return `border-sentiment-${sentiment.replace('very_', 'v')}`;
 }
 
 export function getInitials(name: string): string {
