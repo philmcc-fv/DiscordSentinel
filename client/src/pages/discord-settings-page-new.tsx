@@ -752,6 +752,11 @@ export default function DiscordSettingsPage() {
                   </CardFooter>
                 </Card>
                 
+                {/* Discord Bot Setup Guide (expandable) - within general settings tab */}
+                <div className="mt-6">
+                  <SetupGuide />
+                </div>
+                
               </TabsContent>
               
               <TabsContent value="channels">
@@ -927,11 +932,6 @@ export default function DiscordSettingsPage() {
                 </Card>
               </TabsContent>
             </Tabs>
-            
-            {/* Discord Bot Setup Guide (expandable) - moved to bottom of page */}
-            <div className="mt-6">
-              <SetupGuide />
-            </div>
           </div>
         </div>
       </div>
