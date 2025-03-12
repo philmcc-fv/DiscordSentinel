@@ -45,6 +45,7 @@ export default function MessagesPage() {
       channelId: selectedChannelId
     }],
     refetchInterval: 10000, // Refresh every 10 seconds
+    enabled: true, // Always enabled, will update when queryKey changes
   });
 
   const sentimentOptions: { value: SentimentType | "all", label: string }[] = [
@@ -58,7 +59,15 @@ export default function MessagesPage() {
   
   const applyFilters = () => {
     setIsFiltering(true);
-    refetch().then(() => setIsFiltering(false));
+    // This will trigger a refetch with the latest filter values in the queryKey
+    refetch().then(() => {
+      console.log("Filters applied:", { 
+        sentiment: selectedSentiment, 
+        channelId: selectedChannelId, 
+        search: searchQuery 
+      });
+      setIsFiltering(false);
+    });
   };
 
   return (
