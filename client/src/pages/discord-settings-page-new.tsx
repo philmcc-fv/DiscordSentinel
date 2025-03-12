@@ -285,10 +285,42 @@ export default function DiscordSettingsPage() {
       return await res.json();
     },
     onSuccess: (data) => {
-      toast({
-        title: "Historical messages fetch initiated",
-        description: data.message || "The process may take several minutes depending on message volume.",
-      });
+      if (data.success === false) {
+        // Handle unsuccessful response but still a successful API call
+        const description = data.message || "Could not fetch historical messages.";
+        
+        // Check for permission-related errors
+        if (description.includes("permissions") || description.includes("permission")) {
+          toast({
+            title: "Permission Error",
+            description: (
+              <div className="space-y-2">
+                <p>{description}</p>
+                <p className="font-semibold">Suggestions:</p>
+                <ul className="list-disc pl-4 text-sm">
+                  <li>Ensure the bot has the "View Channel" permission</li>
+                  <li>Ensure the bot has the "Read Message History" permission</li>
+                  <li>Check if the channel has category-level permission restrictions</li>
+                  <li>Try adding the bot to your server again with proper permissions</li>
+                </ul>
+              </div>
+            ),
+            variant: "destructive",
+            duration: 10000, // Show for longer time
+          });
+        } else {
+          toast({
+            title: "Failed to fetch historical messages",
+            description: description,
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Historical messages fetch initiated",
+          description: data.message || "The process may take several minutes depending on message volume.",
+        });
+      }
       // No need to invalidate queries since the data will be updated in the background
     },
     onError: (error: Error) => {

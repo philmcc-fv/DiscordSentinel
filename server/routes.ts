@@ -481,6 +481,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Check channel permissions
+  app.get("/api/channels/:channelId/permissions", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { channelId } = req.params;
+      
+      if (!channelId) {
+        return res.status(400).json({ error: "Channel ID is required" });
+      }
+      
+      // Get Discord client
+      const client = discordAPI.getClient();
+      if (!client || !client.isReady()) {
+        return res.status(503).json({ 
+          hasPermissions: false, 
+          missingPermissions: ["Bot is not connected"],
+          error: "Discord client not ready. Please ensure the bot is properly connected." 
+        });
+      }
+      
+      try {
+        // Get the channel
+        const channel = await client.channels.fetch(channelId);
+        if (!channel || !('messages' in channel)) {
+          return res.status(404).json({ 
+            hasPermissions: false, 
+            missingPermissions: ["Channel not found or not a text channel"]
+          });
+        }
+        
+        // Check permissions
+        const textChannel = channel as any; // TextChannel
+        const missingPermissions = [];
+        let hasPermissions = true;
+        
+        if (textChannel.guild) {
+          const botMember = await textChannel.guild.members.fetch(client.user!.id);
+          const botPermissions = textChannel.permissionsFor(botMember);
+          
+          // Check for required permissions
+          const requiredPermissions = [
+            { flag: BigInt(1024), name: "View Channel" },             // VIEW_CHANNEL = 1024
+            { flag: BigInt(65536), name: "Read Message History" }     // READ_MESSAGE_HISTORY = 65536
+          ];
+          
+          for (const perm of requiredPermissions) {
+            if (!botPermissions.has(perm.flag)) {
+              missingPermissions.push(perm.name);
+              hasPermissions = false;
+            }
+          }
+          
+          res.json({
+            hasPermissions,
+            missingPermissions
+          });
+        } else {
+          res.json({
+            hasPermissions: false,
+            missingPermissions: ["Cannot verify permissions for this channel type"]
+          });
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log(`❌ Error checking channel permissions: ${errorMessage}`, 'error');
+        
+        if (errorMessage.includes('Missing Access')) {
+          return res.status(403).json({
+            hasPermissions: false,
+            missingPermissions: ["Missing Access"],
+            error: "The bot doesn't have access to this channel."
+          });
+        }
+        
+        res.status(500).json({ 
+          hasPermissions: false, 
+          missingPermissions: ["Unknown error"],
+          error: `Error checking permissions: ${errorMessage}`
+        });
+      }
+    } catch (error) {
+      log(`❌ Error checking permissions: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ 
+        hasPermissions: false, 
+        missingPermissions: ["Server error"],
+        error: "Failed to check channel permissions"
+      });
+    }
+  });
+
   // Check Discord connection
   // Manually fetch historical messages for a specific channel
   app.post("/api/channels/fetch-history", async (req, res) => {
@@ -497,6 +588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isMonitored = await storage.isChannelMonitored(channelId);
       if (!isMonitored) {
         return res.status(400).json({ 
+          success: false,
           error: "Channel is not being monitored. Please enable monitoring for this channel first." 
         });
       }
@@ -504,27 +596,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Start fetching historical messages in the background
       log(`📚 Manual request to fetch historical messages for channel ${channelId}`);
       
-      // Use a Promise to fetch messages in the background but still provide immediate feedback
-      fetchHistoricalMessages(channelId, limit || 1000)
-        .then(result => {
-          if (result.success) {
-            log(`✅ Successfully fetched and processed ${result.count} historical messages from channel ${channelId}`);
-          } else {
-            log(`❌ Failed to fetch historical messages: ${result.message}`, 'error');
-          }
-        })
-        .catch(error => {
-          log(`❌ Error fetching historical messages: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      try {
+        // Start fetching process (which checks permissions)
+        const result = await fetchHistoricalMessages(channelId, limit || 1000);
+        
+        if (result.success) {
+          log(`✅ Successfully fetched and processed ${result.count} historical messages from channel ${channelId}`);
+          res.json({ 
+            success: true, 
+            message: result.message || `Successfully processed ${result.count} messages. The data will be available shortly.`
+          });
+        } else {
+          log(`❌ Failed to fetch historical messages: ${result.message}`, 'error');
+          res.json({
+            success: false,
+            message: result.message
+          });
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log(`❌ Error fetching historical messages: ${errorMessage}`, 'error');
+        res.json({
+          success: false,
+          message: `Error fetching messages: ${errorMessage}`
         });
-      
-      // Return success immediately so the UI doesn't hang
-      res.json({ 
-        success: true, 
-        message: "Historical message fetching has been initiated in the background."
-      });
+      }
     } catch (error) {
       log(`❌ Error initiating historical message fetch: ${error instanceof Error ? error.message : String(error)}`, 'error');
-      res.status(500).json({ error: "Failed to initiate historical message fetching" });
+      res.status(500).json({ 
+        success: false, 
+        error: "Failed to initiate historical message fetching" 
+      });
     }
   });
   
