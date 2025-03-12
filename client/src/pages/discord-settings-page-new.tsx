@@ -7,7 +7,10 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, RotateCw, Play, Square, HelpCircle } from "lucide-react";
+import { Loader2, Save, RotateCw, Play, Square, HelpCircle, AlertCircle, Shield, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { ChannelPermissionStatus } from "@/components/discord/channel-permission-status";
+import { PermissionInstructions } from "@/components/discord/permission-instructions";
+import { SetupGuide } from "@/components/discord/setup-guide";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -285,10 +288,42 @@ export default function DiscordSettingsPage() {
       return await res.json();
     },
     onSuccess: (data) => {
-      toast({
-        title: "Historical messages fetch initiated",
-        description: data.message || "The process may take several minutes depending on message volume.",
-      });
+      if (data.success === false) {
+        // Handle unsuccessful response but still a successful API call
+        const description = data.message || "Could not fetch historical messages.";
+        
+        // Check for permission-related errors
+        if (description.includes("permissions") || description.includes("permission")) {
+          toast({
+            title: "Permission Error",
+            description: (
+              <div className="space-y-2">
+                <p>{description}</p>
+                <p className="font-semibold">Suggestions:</p>
+                <ul className="list-disc pl-4 text-sm">
+                  <li>Ensure the bot has the "View Channel" permission</li>
+                  <li>Ensure the bot has the "Read Message History" permission</li>
+                  <li>Check if the channel has category-level permission restrictions</li>
+                  <li>Try adding the bot to your server again with proper permissions</li>
+                </ul>
+              </div>
+            ),
+            variant: "destructive",
+            duration: 10000, // Show for longer time
+          });
+        } else {
+          toast({
+            title: "Failed to fetch historical messages",
+            description: description,
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Historical messages fetch initiated",
+          description: data.message || "The process may take several minutes depending on message volume.",
+        });
+      }
       // No need to invalidate queries since the data will be updated in the background
     },
     onError: (error: Error) => {
@@ -578,60 +613,6 @@ export default function DiscordSettingsPage() {
               </TabsContent>
               
               <TabsContent value="general">
-                <Card className="mb-6">
-                  <CardHeader className="bg-blue-50 border-b border-blue-100">
-                    <CardTitle className="flex items-center gap-2">
-                      <HelpCircle className="h-5 w-5 text-blue-500" />
-                      Discord Bot Setup Guide
-                    </CardTitle>
-                    <CardDescription>
-                      Follow these steps to properly setup your Discord bot
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="pt-4 space-y-3">
-                    <div className="space-y-4">
-                      <div className="border-l-4 border-blue-500 pl-4">
-                        <h3 className="font-semibold text-base mb-1">Step 1: Create a Discord Bot</h3>
-                        <p className="text-sm text-gray-700 mb-1">1. Visit the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener" className="text-blue-600 hover:underline">Discord Developer Portal</a></p>
-                        <p className="text-sm text-gray-700 mb-1">2. Click "New Application" and name your bot</p>
-                        <p className="text-sm text-gray-700 mb-1">3. Go to the "Bot" tab and click "Add Bot"</p>
-                        <p className="text-sm text-gray-700">4. Copy your bot token (Reset Token if needed) and paste it in the form below</p>
-                      </div>
-                      
-                      <div className="border-l-4 border-blue-500 pl-4">
-                        <h3 className="font-semibold text-base mb-1">Step 2: Enable Required Intents</h3>
-                        <p className="text-sm text-gray-700 mb-1">1. In the Bot tab, scroll down to "Privileged Gateway Intents"</p>
-                        <p className="text-sm text-gray-700 mb-1">2. Enable <strong>MESSAGE CONTENT INTENT</strong> (required for analyzing messages)</p>
-                        <p className="text-sm text-gray-700">3. Enable <strong>SERVER MEMBERS INTENT</strong></p>
-                      </div>
-                      
-                      <div className="border-l-4 border-blue-500 pl-4">
-                        <h3 className="font-semibold text-base mb-1">Step 3: Generate Invite URL</h3>
-                        <p className="text-sm text-gray-700 mb-1">1. Go to OAuth2 {'->'} URL Generator</p>
-                        <p className="text-sm text-gray-700 mb-1">2. Select scopes: <strong>bot</strong>, <strong>identify</strong>, <strong>guilds</strong></p>
-                        <p className="text-sm text-gray-700 mb-1">3. Select bot permissions: <strong>View Channels</strong>, <strong>Send Messages</strong>, <strong>Read Message History</strong></p>
-                        <p className="text-sm text-gray-700 mb-1">4. Add any redirect URL (e.g. <code>https://localhost/callback</code>)</p>
-                        <p className="text-sm text-gray-700">5. Copy the generated URL at the bottom of the page</p>
-                      </div>
-                      
-                      <div className="border-l-4 border-blue-500 pl-4">
-                        <h3 className="font-semibold text-base mb-1">Step 4: Invite Bot to Your Server</h3>
-                        <p className="text-sm text-gray-700 mb-1">1. Paste the URL in your browser</p>
-                        <p className="text-sm text-gray-700 mb-1">2. Select your server from the dropdown</p>
-                        <p className="text-sm text-gray-700 mb-1">3. Authorize the bot</p>
-                        <p className="text-sm text-gray-700">4. Verify the bot appears in your server's member list</p>
-                      </div>
-                      
-                      <div className="border-l-4 border-blue-500 pl-4">
-                        <h3 className="font-semibold text-base mb-1">Step 5: Get Server ID</h3>
-                        <p className="text-sm text-gray-700 mb-1">1. In Discord, enable Developer Mode in Settings {'->'} Advanced</p>
-                        <p className="text-sm text-gray-700 mb-1">2. Right-click on your server name and select "Copy ID"</p>
-                        <p className="text-sm text-gray-700">3. Paste the ID in the Server ID field below</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-                
                 <Card>
                   <CardHeader>
                     <CardTitle>Bot Configuration</CardTitle>
@@ -770,6 +751,12 @@ export default function DiscordSettingsPage() {
                     </Button>
                   </CardFooter>
                 </Card>
+                
+                {/* Discord Bot Setup Guide (expandable) - within general settings tab */}
+                <div className="mt-6">
+                  <SetupGuide />
+                </div>
+                
               </TabsContent>
               
               <TabsContent value="channels">
@@ -839,38 +826,49 @@ export default function DiscordSettingsPage() {
                         <div className="space-y-4">
                           {monitoredChannels && monitoredChannels.length > 0 ? (
                             monitoredChannels.map((channel: any) => (
-                              <div key={channel.id} className="flex items-center justify-between space-x-2 p-2 border rounded">
-                                <div className="flex items-center gap-2">
-                                  <Checkbox 
-                                    id={`channel-${channel.id}`}
-                                    disabled={monitorAllChannels}
-                                    checked={selectedChannels.includes(channel.channelId)}
-                                    onCheckedChange={() => toggleChannelSelection(channel.channelId)}
-                                  />
-                                  <label
-                                    htmlFor={`channel-${channel.id}`}
-                                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                                  >
-                                    #{channel.name}
-                                  </label>
-                                </div>
-                                {selectedChannels.includes(channel.channelId) && (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="px-2 h-7 text-xs"
-                                    onClick={() => handleFetchHistory(channel.channelId)}
-                                    disabled={fetchingHistoryForChannel === channel.channelId || !botSettings?.isActive}
-                                    title={!botSettings?.isActive ? "Start the bot first to fetch historical messages" : "Fetch and analyze historical messages"}
-                                  >
-                                    {fetchingHistoryForChannel === channel.channelId ? (
-                                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                    ) : (
-                                      <RotateCw className="h-3 w-3 mr-1" />
+                              <div key={channel.id} className="flex flex-col p-2 border rounded">
+                                <div className="flex items-center justify-between space-x-2">
+                                  <div className="flex items-center gap-2">
+                                    <Checkbox 
+                                      id={`channel-${channel.id}`}
+                                      disabled={monitorAllChannels}
+                                      checked={selectedChannels.includes(channel.channelId)}
+                                      onCheckedChange={() => toggleChannelSelection(channel.channelId)}
+                                    />
+                                    <label
+                                      htmlFor={`channel-${channel.id}`}
+                                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                                    >
+                                      #{channel.name}
+                                    </label>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {selectedChannels.includes(channel.channelId) && (
+                                      <>
+                                        <ChannelPermissionStatus 
+                                          channelId={channel.channelId} 
+                                          guildId={guildId} 
+                                          disabled={!botSettings?.isActive}
+                                        />
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="px-2 h-7 text-xs"
+                                          onClick={() => handleFetchHistory(channel.channelId)}
+                                          disabled={fetchingHistoryForChannel === channel.channelId || !botSettings?.isActive}
+                                          title={!botSettings?.isActive ? "Start the bot first to fetch historical messages" : "Fetch and analyze historical messages"}
+                                        >
+                                          {fetchingHistoryForChannel === channel.channelId ? (
+                                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                          ) : (
+                                            <RotateCw className="h-3 w-3 mr-1" />
+                                          )}
+                                          {fetchingHistoryForChannel === channel.channelId ? "Fetching..." : "Fetch History"}
+                                        </Button>
+                                      </>
                                     )}
-                                    {fetchingHistoryForChannel === channel.channelId ? "Fetching..." : "Fetch History"}
-                                  </Button>
-                                )}
+                                  </div>
+                                </div>
                               </div>
                             ))
                           ) : (
@@ -881,6 +879,9 @@ export default function DiscordSettingsPage() {
                         </div>
                       )}
                     </div>
+                    
+                    {/* Permission instructions for troubleshooting */}
+                    <PermissionInstructions />
                   </CardContent>
                   <CardFooter>
                     <Button 
