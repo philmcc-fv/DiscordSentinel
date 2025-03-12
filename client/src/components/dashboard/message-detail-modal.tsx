@@ -101,8 +101,12 @@ const MessageDetailModal: FC<MessageDetailModalProps> = ({
   })();
 
   // Get unique channels for filtering
-  const channelsSet = new Set<string>((messages || []).map(m => m.channelId));
-  const channels = Array.from(channelsSet);
+  const uniqueChannels: string[] = [];
+  (messages || []).forEach(m => {
+    if (!uniqueChannels.includes(m.channelId)) {
+      uniqueChannels.push(m.channelId);
+    }
+  });
 
   // Apply filters
   const filteredMessages = (messages || []).filter(message => {
@@ -179,7 +183,7 @@ const MessageDetailModal: FC<MessageDetailModalProps> = ({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Channels</SelectItem>
-                {channels.map(channel => (
+                {uniqueChannels.map((channel: string) => (
                   <SelectItem key={channel} value={channel}>
                     #{channel}
                   </SelectItem>
@@ -265,7 +269,7 @@ const MessageDetailModal: FC<MessageDetailModalProps> = ({
                       </TableCell>
                       <TableCell className="whitespace-nowrap">
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSentimentClass(message.sentiment as SentimentType)}`}>
-                          {message.sentiment.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          {message.sentiment.split('_').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                         </span>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-sm text-gray-500">
