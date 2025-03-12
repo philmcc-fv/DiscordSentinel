@@ -93,15 +93,16 @@ const MessageDetailModal: FC<MessageDetailModalProps> = ({
 
   // Get sentiment color class for the average
   const avgSentimentClass = (() => {
-    if (avgSentiment === "Very Positive") return "bg-[#10B981] text-white";
-    if (avgSentiment === "Positive") return "bg-[#34D399] text-white";
-    if (avgSentiment === "Neutral") return "bg-[#9CA3AF] text-white";
-    if (avgSentiment === "Negative") return "bg-[#F87171] text-white";
-    return "bg-[#EF4444] text-white";
+    if (avgSentiment === "Very Positive") return "bg-sentiment-vpositive text-white";
+    if (avgSentiment === "Positive") return "bg-sentiment-positive text-white";
+    if (avgSentiment === "Neutral") return "bg-sentiment-neutral text-white";
+    if (avgSentiment === "Negative") return "bg-sentiment-negative text-white";
+    return "bg-sentiment-vnegative text-white";
   })();
 
   // Get unique channels for filtering
-  const channels = [...new Set((messages || []).map(m => m.channelId))];
+  const channelsSet = new Set<string>((messages || []).map(m => m.channelId));
+  const channels = Array.from(channelsSet);
 
   // Apply filters
   const filteredMessages = (messages || []).filter(message => {
@@ -145,23 +146,23 @@ const MessageDetailModal: FC<MessageDetailModalProps> = ({
 
           <div className="flex items-center space-x-3 text-sm">
             <div className="flex items-center">
-              <div className="w-2 h-2 rounded-full bg-[#10B981] mr-1"></div>
+              <div className="w-2 h-2 rounded-full bg-sentiment-vpositive mr-1"></div>
               <span className="text-xs">{getPercentage('very_positive')}</span>
             </div>
             <div className="flex items-center">
-              <div className="w-2 h-2 rounded-full bg-[#34D399] mr-1"></div>
+              <div className="w-2 h-2 rounded-full bg-sentiment-positive mr-1"></div>
               <span className="text-xs">{getPercentage('positive')}</span>
             </div>
             <div className="flex items-center">
-              <div className="w-2 h-2 rounded-full bg-[#9CA3AF] mr-1"></div>
+              <div className="w-2 h-2 rounded-full bg-sentiment-neutral mr-1"></div>
               <span className="text-xs">{getPercentage('neutral')}</span>
             </div>
             <div className="flex items-center">
-              <div className="w-2 h-2 rounded-full bg-[#F87171] mr-1"></div>
+              <div className="w-2 h-2 rounded-full bg-sentiment-negative mr-1"></div>
               <span className="text-xs">{getPercentage('negative')}</span>
             </div>
             <div className="flex items-center">
-              <div className="w-2 h-2 rounded-full bg-[#EF4444] mr-1"></div>
+              <div className="w-2 h-2 rounded-full bg-sentiment-vnegative mr-1"></div>
               <span className="text-xs">{getPercentage('very_negative')}</span>
             </div>
           </div>

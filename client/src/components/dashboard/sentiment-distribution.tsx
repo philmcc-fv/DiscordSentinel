@@ -9,7 +9,16 @@ interface SentimentDistributionProps {
 }
 
 const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) => {
-  const { data, isLoading, error } = useQuery({
+  type DistributionData = {
+    very_positive: number;
+    positive: number;
+    neutral: number;
+    negative: number;
+    very_negative: number;
+    total: number;
+  };
+
+  const { data, isLoading, error } = useQuery<DistributionData>({
     queryKey: ["/api/distribution", { days }],
     refetchInterval: 15000, // Refresh every 15 seconds
   });
@@ -50,7 +59,8 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
     );
   }
 
-  const { very_positive, positive, neutral, negative, very_negative, total } = data || {
+  // Make sure we have a default empty object with all required properties
+  const distribution: DistributionData = data || {
     very_positive: 0,
     positive: 0,
     neutral: 0,
@@ -58,6 +68,8 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
     very_negative: 0,
     total: 0
   };
+  
+  const { very_positive, positive, neutral, negative, very_negative, total } = distribution;
 
   const getPercentage = (value: number) => {
     if (total === 0) return 0;

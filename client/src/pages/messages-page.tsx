@@ -189,7 +189,7 @@ export default function MessagesPage() {
                           </div>
                           <div>
                             <span className={`px-2 py-1 text-xs font-medium rounded-full bg-opacity-90 border border-gray-300 ${getSentimentClass(message.sentiment as SentimentType)}`}>
-                              {message.sentiment.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                              {message.sentiment.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                             </span>
                           </div>
                         </div>
