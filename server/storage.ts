@@ -69,7 +69,7 @@ export interface IStorage {
   updateChannel(channel: InsertDiscordChannel): Promise<DiscordChannel>;
 
   // Discord message management
-  getRecentMessages(limit?: number): Promise<DiscordMessage[]>;
+  getRecentMessages(limit?: number, filters?: { sentiment?: string; channelId?: string; search?: string; }): Promise<DiscordMessage[]>;
   getMessagesByDate(date: Date): Promise<DiscordMessage[]>;
   getMessagesByDateRange(startDate: Date, endDate: Date): Promise<DiscordMessage[]>;
   createDiscordMessage(message: InsertDiscordMessage): Promise<DiscordMessage>;
