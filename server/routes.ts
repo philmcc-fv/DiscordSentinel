@@ -23,27 +23,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const search = req.query.search as string || '';
       const channelId = req.query.channelId as string || 'all';
       
-      // Get messages with potential filters
-      let messages = await storage.getRecentMessages(limit);
-      
-      // Apply sentiment filter if not 'all'
-      if (sentiment !== 'all') {
-        messages = messages.filter(msg => msg.sentiment === sentiment);
-      }
-      
-      // Apply channel filter if not 'all'
-      if (channelId !== 'all') {
-        messages = messages.filter(msg => msg.channelId === channelId);
-      }
-      
-      // Apply text search if provided
-      if (search && search.trim() !== '') {
-        const searchLower = search.toLowerCase();
-        messages = messages.filter(msg => 
-          msg.content.toLowerCase().includes(searchLower) || 
-          msg.username.toLowerCase().includes(searchLower)
-        );
-      }
+      // Pass filters directly to the storage method
+      const messages = await storage.getRecentMessages(limit, {
+        sentiment,
+        channelId,
+        search
+      });
       
       res.json(messages);
     } catch (error) {

@@ -20,7 +20,7 @@ import {
   type SentimentType
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, sql, desc, between, gte, lte, count } from "drizzle-orm";
+import { eq, and, sql, desc, between, gte, lte, count, or, ilike } from "drizzle-orm";
 import postgres from "postgres";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -178,12 +178,41 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Discord message management
-  async getRecentMessages(limit: number = 20): Promise<DiscordMessage[]> {
-    return db
+  async getRecentMessages(
+    limit: number = 20, 
+    filters?: { 
+      sentiment?: string;
+      channelId?: string;
+      search?: string;
+    }
+  ): Promise<DiscordMessage[]> {
+    let query = db
       .select()
       .from(discordMessages)
-      .orderBy(desc(discordMessages.createdAt))
-      .limit(limit);
+      .orderBy(desc(discordMessages.createdAt));
+    
+    // Apply sentiment filter if provided and not 'all'
+    if (filters?.sentiment && filters.sentiment !== 'all') {
+      query = query.where(eq(discordMessages.sentiment, filters.sentiment));
+    }
+    
+    // Apply channel filter if provided and not 'all'
+    if (filters?.channelId && filters.channelId !== 'all') {
+      query = query.where(eq(discordMessages.channelId, filters.channelId));
+    }
+    
+    // Apply text search if provided
+    if (filters?.search && filters.search.trim() !== '') {
+      const searchTerm = `%${filters.search.toLowerCase()}%`;
+      query = query.where(
+        or(
+          sql`LOWER(${discordMessages.content}) LIKE ${searchTerm}`,
+          sql`LOWER(${discordMessages.username}) LIKE ${searchTerm}`
+        )
+      );
+    }
+    
+    return query.limit(limit);
   }
 
   async getMessagesByDate(date: Date): Promise<DiscordMessage[]> {
