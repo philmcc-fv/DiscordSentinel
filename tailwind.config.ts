@@ -51,6 +51,13 @@ export default {
           "4": "hsl(var(--chart-4))",
           "5": "hsl(var(--chart-5))",
         },
+        sentiment: {
+          "vpositive": "#10B981", // Green 500
+          "positive": "#34D399", // Green 400
+          "neutral": "#9CA3AF", // Gray 400
+          "negative": "#F87171", // Red 400
+          "vnegative": "#EF4444", // Red 500
+        },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",

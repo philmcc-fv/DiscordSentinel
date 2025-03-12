@@ -1,6 +1,6 @@
 import { analyzeSentiment } from './openai';
 import { storage } from './storage';
-import { SentimentType, discordChannels } from '@shared/schema';
+import { SentimentType, discordChannels, discordMessages } from '@shared/schema';
 import { discordAPI } from './discord-api';
 import { Client, Events, Message, PermissionsBitField, GatewayIntentBits, NonThreadGuildBasedChannel, Guild, TextChannel, Collection } from 'discord.js';
 import { log } from './vite';
@@ -269,6 +269,21 @@ export async function fetchHistoricalMessages(channelId: string, limit: number =
         }
         
         try {
+          // Check if the bot has the necessary permissions
+          if (textChannel.guild) {
+            const botMember = await textChannel.guild.members.fetch(client.user!.id);
+            const botPermissions = textChannel.permissionsFor(botMember);
+            
+            if (!botPermissions.has(PermissionsBitField.Flags.ViewChannel) || !botPermissions.has(PermissionsBitField.Flags.ReadMessageHistory)) {
+              log(`❌ Bot lacks necessary permissions for channel #${textChannel.name}`, 'error');
+              return {
+                success: false,
+                count: 0,
+                message: `The bot doesn't have necessary permissions to view message history in channel #${textChannel.name}. Please ensure it has 'View Channel' and 'Read Message History' permissions.`
+              };
+            }
+          }
+          
           log(`📥 Fetching batch of up to ${fetchOptions.limit} messages ${lastMessageId ? `before message ID ${lastMessageId}` : ''}`, 'debug');
           const batch = await textChannel.messages.fetch(fetchOptions);
           
@@ -295,7 +310,24 @@ export async function fetchHistoricalMessages(channelId: string, limit: number =
             break;
           }
         } catch (batchError) {
-          log(`⚠️ Error fetching batch: ${batchError instanceof Error ? batchError.message : String(batchError)}`, 'error');
+          const errorMessage = batchError instanceof Error ? batchError.message : String(batchError);
+          log(`⚠️ Error fetching batch: ${errorMessage}`, 'error');
+          
+          // Handle common Discord API errors
+          if (errorMessage.includes('Missing Access')) {
+            return {
+              success: false,
+              count: 0,
+              message: `The bot doesn't have permission to access messages in channel #${textChannel.name}. Please check the bot's roles and permissions.`
+            };
+          } else if (errorMessage.includes('Missing Permissions')) {
+            return {
+              success: false,
+              count: 0,
+              message: `The bot lacks the required permissions to read message history in channel #${textChannel.name}.`
+            };
+          }
+          
           // If we have some messages already, we'll continue with those rather than failing completely
           if (allMessages.length > 0) {
             log(`📥 Continuing with ${allMessages.length} messages already fetched`, 'debug');
@@ -305,7 +337,7 @@ export async function fetchHistoricalMessages(channelId: string, limit: number =
             return { 
               success: false, 
               count: 0,
-              message: `Error fetching messages: ${batchError instanceof Error ? batchError.message : String(batchError)}` 
+              message: `Error fetching messages: ${errorMessage}` 
             };
           }
         }

@@ -20,7 +20,7 @@ import {
   type SentimentType
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, sql, desc, between, gte, lte, count } from "drizzle-orm";
+import { eq, and, sql, desc, between, gte, lte, count, or, ilike } from "drizzle-orm";
 import postgres from "postgres";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -69,7 +69,7 @@ export interface IStorage {
   updateChannel(channel: InsertDiscordChannel): Promise<DiscordChannel>;
 
   // Discord message management
-  getRecentMessages(limit?: number): Promise<DiscordMessage[]>;
+  getRecentMessages(limit?: number, filters?: { sentiment?: string; channelId?: string; search?: string; }): Promise<DiscordMessage[]>;
   getMessagesByDate(date: Date): Promise<DiscordMessage[]>;
   getMessagesByDateRange(startDate: Date, endDate: Date): Promise<DiscordMessage[]>;
   createDiscordMessage(message: InsertDiscordMessage): Promise<DiscordMessage>;
@@ -178,12 +178,68 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Discord message management
-  async getRecentMessages(limit: number = 20): Promise<DiscordMessage[]> {
-    return db
-      .select()
-      .from(discordMessages)
-      .orderBy(desc(discordMessages.createdAt))
-      .limit(limit);
+  async getRecentMessages(
+    limit: number = 20, 
+    filters?: { 
+      sentiment?: string;
+      channelId?: string;
+      search?: string;
+    }
+  ): Promise<DiscordMessage[]> {
+    // Start building the SQL query
+    let sqlQuery = `
+      SELECT * FROM discord_messages
+      WHERE 1=1
+    `;
+    
+    const params: any[] = [];
+    let paramIndex = 1;
+    
+    // Apply sentiment filter if provided and not 'all'
+    if (filters?.sentiment && filters.sentiment !== 'all') {
+      sqlQuery += ` AND sentiment = $${paramIndex}`;
+      params.push(filters.sentiment);
+      paramIndex++;
+    }
+    
+    // Apply channel filter if provided and not 'all'
+    if (filters?.channelId && filters.channelId !== 'all') {
+      sqlQuery += ` AND channel_id = $${paramIndex}`;
+      params.push(filters.channelId);
+      paramIndex++;
+    }
+    
+    // Apply text search if provided
+    if (filters?.search && filters.search.trim() !== '') {
+      const searchTerm = `%${filters.search.toLowerCase()}%`;
+      sqlQuery += ` AND (LOWER(content) LIKE $${paramIndex} OR LOWER(username) LIKE $${paramIndex})`;
+      params.push(searchTerm);
+      paramIndex++;
+    }
+    
+    // Add ordering and limit
+    sqlQuery += ` ORDER BY created_at DESC LIMIT $${paramIndex}`;
+    params.push(limit);
+    
+    // Execute the query using the postgres client directly
+    const results = await pgClient.unsafe(sqlQuery, params);
+    
+    // Remove sentimentConfidence which is not in our schema
+    return results.map(row => {
+      const message: DiscordMessage = {
+        id: Number(row.id),
+        messageId: String(row.message_id), 
+        channelId: String(row.channel_id),
+        userId: String(row.user_id),
+        username: String(row.username),
+        content: String(row.content),
+        sentiment: String(row.sentiment) as SentimentType,
+        sentimentScore: Number(row.sentiment_score),
+        createdAt: new Date(String(row.created_at)),
+        analyzedAt: new Date(String(row.analyzed_at))
+      };
+      return message;
+    });
   }
 
   async getMessagesByDate(date: Date): Promise<DiscordMessage[]> {

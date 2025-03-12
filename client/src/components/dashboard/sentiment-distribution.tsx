@@ -9,8 +9,18 @@ interface SentimentDistributionProps {
 }
 
 const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) => {
-  const { data, isLoading, error } = useQuery({
+  type DistributionData = {
+    very_positive: number;
+    positive: number;
+    neutral: number;
+    negative: number;
+    very_negative: number;
+    total: number;
+  };
+
+  const { data, isLoading, error } = useQuery<DistributionData>({
     queryKey: ["/api/distribution", { days }],
+    refetchInterval: 15000, // Refresh every 15 seconds
   });
 
   if (isLoading) {
@@ -49,7 +59,8 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
     );
   }
 
-  const { very_positive, positive, neutral, negative, very_negative, total } = data || {
+  // Make sure we have a default empty object with all required properties
+  const distribution: DistributionData = data || {
     very_positive: 0,
     positive: 0,
     neutral: 0,
@@ -57,6 +68,8 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
     very_negative: 0,
     total: 0
   };
+  
+  const { very_positive, positive, neutral, negative, very_negative, total } = distribution;
 
   const getPercentage = (value: number) => {
     if (total === 0) return 0;
@@ -79,7 +92,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#10B981] h-2.5 rounded-full" 
+                className="bg-sentiment-vpositive h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(very_positive)) }}
               ></div>
             </div>
@@ -94,7 +107,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#34D399] h-2.5 rounded-full" 
+                className="bg-sentiment-positive h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(positive)) }}
               ></div>
             </div>
@@ -109,7 +122,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#9CA3AF] h-2.5 rounded-full" 
+                className="bg-sentiment-neutral h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(neutral)) }}
               ></div>
             </div>
@@ -124,7 +137,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#F87171] h-2.5 rounded-full" 
+                className="bg-sentiment-negative h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(negative)) }}
               ></div>
             </div>
@@ -139,7 +152,7 @@ const SentimentDistribution: FC<SentimentDistributionProps> = ({ days = 30 }) =>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2.5">
               <div 
-                className="bg-[#EF4444] h-2.5 rounded-full" 
+                className="bg-sentiment-vnegative h-2.5 rounded-full" 
                 style={{ width: percentToWidth(getPercentage(very_negative)) }}
               ></div>
             </div>

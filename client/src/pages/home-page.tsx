@@ -27,6 +27,7 @@ export default function HomePage() {
 
   const { data: stats, isLoading: statsLoading } = useQuery<StatsResponse>({
     queryKey: ["/api/stats"],
+    refetchInterval: 15000, // Refresh every 15 seconds
   });
 
   const handleChartDataPointClick = (date: string) => {

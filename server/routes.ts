@@ -17,9 +17,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/recent-messages", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
-    const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
-    const messages = await storage.getRecentMessages(limit);
-    res.json(messages);
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const sentiment = req.query.sentiment as string || 'all';
+      const search = req.query.search as string || '';
+      const channelId = req.query.channelId as string || 'all';
+      
+      // Pass filters directly to the storage method
+      const messages = await storage.getRecentMessages(limit, {
+        sentiment,
+        channelId,
+        search
+      });
+      
+      res.json(messages);
+    } catch (error) {
+      console.error('Error fetching filtered messages:', error);
+      res.status(500).json({ error: "Failed to fetch messages" });
+    }
   });
 
   app.get("/api/messages/:date", async (req, res) => {
