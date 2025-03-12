@@ -186,33 +186,58 @@ export class DatabaseStorage implements IStorage {
       search?: string;
     }
   ): Promise<DiscordMessage[]> {
-    let query = db
-      .select()
-      .from(discordMessages)
-      .orderBy(desc(discordMessages.createdAt));
+    // Start building the SQL query
+    let sqlQuery = `
+      SELECT * FROM discord_messages
+      WHERE 1=1
+    `;
+    
+    const params: any[] = [];
+    let paramIndex = 1;
     
     // Apply sentiment filter if provided and not 'all'
     if (filters?.sentiment && filters.sentiment !== 'all') {
-      query = query.where(eq(discordMessages.sentiment, filters.sentiment));
+      sqlQuery += ` AND sentiment = $${paramIndex}`;
+      params.push(filters.sentiment);
+      paramIndex++;
     }
     
     // Apply channel filter if provided and not 'all'
     if (filters?.channelId && filters.channelId !== 'all') {
-      query = query.where(eq(discordMessages.channelId, filters.channelId));
+      sqlQuery += ` AND channel_id = $${paramIndex}`;
+      params.push(filters.channelId);
+      paramIndex++;
     }
     
     // Apply text search if provided
     if (filters?.search && filters.search.trim() !== '') {
       const searchTerm = `%${filters.search.toLowerCase()}%`;
-      query = query.where(
-        or(
-          sql`LOWER(${discordMessages.content}) LIKE ${searchTerm}`,
-          sql`LOWER(${discordMessages.username}) LIKE ${searchTerm}`
-        )
-      );
+      sqlQuery += ` AND (LOWER(content) LIKE $${paramIndex} OR LOWER(username) LIKE $${paramIndex})`;
+      params.push(searchTerm);
+      paramIndex++;
     }
     
-    return query.limit(limit);
+    // Add ordering and limit
+    sqlQuery += ` ORDER BY created_at DESC LIMIT $${paramIndex}`;
+    params.push(limit);
+    
+    // Execute the query using the postgres client directly
+    const results = await pgClient.unsafe(sqlQuery, params);
+    
+    // Transform results to match DiscordMessage type
+    return results.map(row => ({
+      id: Number(row.id),
+      messageId: String(row.message_id),
+      channelId: String(row.channel_id),
+      userId: String(row.user_id),
+      username: String(row.username),
+      content: String(row.content),
+      sentiment: String(row.sentiment),
+      sentimentScore: Number(row.sentiment_score),
+      sentimentConfidence: Number(row.sentiment_confidence),
+      createdAt: new Date(String(row.created_at)),
+      guildId: row.guild_id ? String(row.guild_id) : null
+    }));
   }
 
   async getMessagesByDate(date: Date): Promise<DiscordMessage[]> {
