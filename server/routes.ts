@@ -613,16 +613,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let hasViewAccess = true;
           let hasHistoryAccess = true;
           
-          // Check for VIEW_CHANNEL permission
-          if (!channel.permissionsFor(client.user)?.has("ViewChannel")) {
-            missingPermissions.push("View Channel");
-            hasViewAccess = false;
-          }
-          
-          // Check for READ_MESSAGE_HISTORY permission
-          if (!channel.permissionsFor(client.user)?.has("ReadMessageHistory")) {
-            missingPermissions.push("Read Message History");
-            hasHistoryAccess = false;
+          // We need to check if this is a guild channel (with permissions) vs DM channel
+          // as permissionsFor is only available on GuildChannels 
+          if ('permissionsFor' in channel) {
+            // Check for VIEW_CHANNEL permission
+            if (!(channel as any).permissionsFor(client.user)?.has("ViewChannel")) {
+              missingPermissions.push("View Channel");
+              hasViewAccess = false;
+            }
+            
+            // Check for READ_MESSAGE_HISTORY permission
+            if (!(channel as any).permissionsFor(client.user)?.has("ReadMessageHistory")) {
+              missingPermissions.push("Read Message History");
+              hasHistoryAccess = false;
+            }
+          } else {
+            // For DM channels, we assume we have permissions since the user is messaging the bot directly
+            log(`Channel ${channelId} doesn't support permissionsFor check, likely a DM channel`);
           }
           
           if (missingPermissions.length === 0) {
