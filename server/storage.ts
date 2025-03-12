@@ -224,20 +224,22 @@ export class DatabaseStorage implements IStorage {
     // Execute the query using the postgres client directly
     const results = await pgClient.unsafe(sqlQuery, params);
     
-    // Transform results to match DiscordMessage type
-    return results.map(row => ({
-      id: Number(row.id),
-      messageId: String(row.message_id),
-      channelId: String(row.channel_id),
-      userId: String(row.user_id),
-      username: String(row.username),
-      content: String(row.content),
-      sentiment: String(row.sentiment),
-      sentimentScore: Number(row.sentiment_score),
-      sentimentConfidence: Number(row.sentiment_confidence),
-      createdAt: new Date(String(row.created_at)),
-      guildId: row.guild_id ? String(row.guild_id) : null
-    }));
+    // Remove sentimentConfidence which is not in our schema
+    return results.map(row => {
+      const message: DiscordMessage = {
+        id: Number(row.id),
+        messageId: String(row.message_id), 
+        channelId: String(row.channel_id),
+        userId: String(row.user_id),
+        username: String(row.username),
+        content: String(row.content),
+        sentiment: String(row.sentiment) as SentimentType,
+        sentimentScore: Number(row.sentiment_score),
+        createdAt: new Date(String(row.created_at)),
+        analyzedAt: new Date(String(row.analyzed_at))
+      };
+      return message;
+    });
   }
 
   async getMessagesByDate(date: Date): Promise<DiscordMessage[]> {
