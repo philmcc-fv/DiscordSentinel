@@ -35,8 +35,11 @@ class TelegramAPI {
     }
 
     try {
+      // Clean the token from any invisible/control characters
+      const cleanToken = token.replace(/[^\x20-\x7E]/g, '');
+      
       // Create new bot instance
-      this.bot = new TelegramBot(token, { polling: true });
+      this.bot = new TelegramBot(cleanToken, { polling: true });
       
       // Test connection by getting bot info
       const me = await this.bot.getMe();
@@ -44,7 +47,7 @@ class TelegramAPI {
       log(`Telegram bot initialized successfully (ID: ${me.id}, Username: @${me.username})`, 'info');
       
       this.isInitialized = true;
-      this.token = token;
+      this.token = cleanToken;
       
       return true;
     } catch (error) {
@@ -78,8 +81,11 @@ class TelegramAPI {
    */
   async testConnection(token: string): Promise<{ success: boolean, message: string, botInfo?: TelegramBot.User }> {
     try {
+      // Clean the token from any invisible/control characters
+      const cleanToken = token.replace(/[^\x20-\x7E]/g, '');
+      
       // Create a temporary bot instance for testing
-      const testBot = new TelegramBot(token, { polling: false });
+      const testBot = new TelegramBot(cleanToken, { polling: false });
       
       // Get bot information
       const botInfo = await testBot.getMe();
@@ -90,9 +96,16 @@ class TelegramAPI {
         botInfo
       };
     } catch (error) {
+      let errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Enhanced error message for common issues
+      if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("characters")) {
+        errorMessage = "Invalid token format. Please check for any special or non-printable characters in your token.";
+      }
+      
       return {
         success: false,
-        message: `Failed to connect to Telegram: ${error instanceof Error ? error.message : String(error)}`
+        message: `Failed to connect to Telegram: ${errorMessage}`
       };
     }
   }
