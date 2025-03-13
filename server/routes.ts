@@ -8,6 +8,8 @@ import { discordAPI } from "./discord-api";
 import { log } from "./vite";
 import { analyzeSentiment } from "./openai";
 import { GuildChannel } from "discord.js";
+import { telegramAPI } from "./telegram-api";
+import { startTelegramBot, setupMessageListeners as setupTelegramMessageListeners, fetchHistoricalMessages as fetchTelegramHistoricalMessages } from "./telegram-bot";
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
