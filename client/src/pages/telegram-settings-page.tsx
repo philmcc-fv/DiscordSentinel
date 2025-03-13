@@ -576,16 +576,32 @@ export default function TelegramSettingsPage() {
             
             <TabsContent value="chats" className="space-y-4 mt-4">
               <Card>
-                <CardHeader>
-                  <CardTitle>Monitored Telegram Chats</CardTitle>
-                  <CardDescription>
-                    Choose which Telegram chats you want to monitor for sentiment analysis
-                  </CardDescription>
+                <CardHeader className="flex flex-row items-center justify-between">
+                  <div>
+                    <CardTitle>Monitored Telegram Chats</CardTitle>
+                    <CardDescription>
+                      Choose which Telegram chats you want to monitor for sentiment analysis
+                    </CardDescription>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="ml-auto" 
+                    onClick={() => refreshChatsMutation.mutate()}
+                    disabled={isRefreshingChats || !botSettings?.isActive}
+                  >
+                    {isRefreshingChats ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Refreshing</>
+                    ) : (
+                      <><RefreshCw className="mr-2 h-4 w-4" /> Refresh Chats</>
+                    )}
+                  </Button>
                 </CardHeader>
                 <CardContent>
-                  {chatsLoading ? (
+                  {chatsLoading || isRefreshingChats ? (
                     <div className="flex items-center justify-center h-32">
                       <Loader2 className="h-6 w-6 animate-spin" />
+                      <span className="ml-2">{isRefreshingChats ? "Refreshing chats..." : "Loading chats..."}</span>
                     </div>
                   ) : monitoredChats.length === 0 ? (
                     <div className="text-center py-8 bg-muted rounded-md">
@@ -597,6 +613,16 @@ export default function TelegramSettingsPage() {
                       <p className="text-sm text-muted-foreground mt-1">
                         Make sure to disable Privacy Mode in BotFather settings.
                       </p>
+                      <div className="mt-3">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => refreshChatsMutation.mutate()}
+                          disabled={isRefreshingChats || !botSettings?.isActive}
+                        >
+                          <RefreshCw className="mr-2 h-4 w-4" /> Refresh Chats
+                        </Button>
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-4">

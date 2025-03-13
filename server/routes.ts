@@ -1105,8 +1105,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               type: liveChat.type,
               title: liveChat.title || '',
               username: liveChat.username || '',
-              createdAt: new Date(),
-              updatedAt: new Date()
+              createdAt: new Date()
             });
             
             log(`Added new Telegram chat to database: ${liveChat.title || liveChat.username || chatId}`, 'info');
