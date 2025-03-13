@@ -35,7 +35,7 @@ import {
   type SentimentType
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, sql, desc, between, gte, lte, count, or, ilike } from "drizzle-orm";
+import { eq, and, sql, desc, between, gte, lte, count, or, ilike, inArray } from "drizzle-orm";
 import postgres from "postgres";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -918,7 +918,38 @@ export class DatabaseStorage implements IStorage {
         }
       );
       
-      // Map Telegram messages to the combined format
+      // Get Telegram chat info for each message
+      // We'll create a unique array of chat IDs manually to avoid Set conversion issues
+      const chatIds = telegramMessages.map(msg => msg.chatId);
+      const uniqueChatIds: string[] = [];
+      
+      // Manual deduplication
+      for (const chatId of chatIds) {
+        if (!uniqueChatIds.includes(chatId)) {
+          uniqueChatIds.push(chatId);
+        }
+      }
+      
+      const chatMap: Record<string, string> = {};
+      
+      if (uniqueChatIds.length > 0) {
+        // Get chat titles for these chat IDs - build the query manually
+        const placeholders = uniqueChatIds.map((_, i) => `$${i + 1}`).join(', ');
+        const query = `
+          SELECT chat_id, title 
+          FROM telegram_chats 
+          WHERE chat_id IN (${placeholders})
+        `;
+        
+        const chatResults = await pgClient.unsafe(query, uniqueChatIds);
+        
+        // Create a map of chatId to title
+        for (const chat of chatResults) {
+          chatMap[chat.chat_id] = chat.title || `Chat ${chat.chat_id}`;
+        }
+      }
+      
+      // Map Telegram messages to the combined format with chat title
       const telegramCombined = telegramMessages.map(msg => {
         return {
           id: `telegram-${msg.messageId}`,
@@ -932,8 +963,7 @@ export class DatabaseStorage implements IStorage {
           createdAt: msg.createdAt,
           firstName: msg.firstName || undefined,
           lastName: msg.lastName || undefined,
-          // Add chat title if available from joined data
-          chatTitle: msg.chatTitle || undefined
+          chatTitle: chatMap[msg.chatId] || undefined
         } as CombinedMessage;
       });
       
