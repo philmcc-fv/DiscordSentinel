@@ -7,6 +7,7 @@ import HomePage from "@/pages/home-page";
 import TrendsPage from "@/pages/trends-page";
 import MessagesPage from "@/pages/messages-page";
 import DiscordSettingsPage from "@/pages/discord-settings-page-new";
+import TelegramSettingsPage from "@/pages/telegram-settings-page";
 import AuthPage from "@/pages/auth-page";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ProtectedRoute } from "@/lib/protected-route";
@@ -18,6 +19,7 @@ function Router() {
       <ProtectedRoute path="/trends" component={TrendsPage} />
       <ProtectedRoute path="/messages" component={MessagesPage} />
       <ProtectedRoute path="/discord-settings" component={DiscordSettingsPage} />
+      <ProtectedRoute path="/telegram-settings" component={TelegramSettingsPage} />
       <Route path="/auth" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
