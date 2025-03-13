@@ -11,6 +11,9 @@ import { GuildChannel } from "discord.js";
 import { telegramAPI } from "./telegram-api";
 import { startTelegramBot, setupMessageListeners as setupTelegramMessageListeners, fetchHistoricalMessages as fetchTelegramHistoricalMessages } from "./telegram-bot";
 import * as TelegramBot from 'node-telegram-bot-api';
+import * as fs from 'fs';
+import * as path from 'path';
+import { validateTelegramToken, validateDiscordToken } from './utils/token-validation';
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -293,7 +296,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     try {
       const settings = await storage.getBotSettings(req.params.guildId);
-      res.json(settings || { guildId: req.params.guildId, isActive: false, monitorAllChannels: false });
+      if (settings) {
+        const { token, ...safeSettings } = settings;
+        res.json({
+          ...safeSettings,
+          tokenSet: !!token
+        });
+      } else {
+        res.json({ guildId: req.params.guildId, isActive: false, monitorAllChannels: false });
+      }
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bot settings" });
     }
@@ -306,8 +317,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Get all settings
       const allSettings = await storage.getAllBotSettings();
-      // Return the first (most recent) settings or an empty object
-      res.json(allSettings.length > 0 ? allSettings[0] : {});
+      
+      // Return the first (most recent) settings or an empty object, but exclude the token
+      if (allSettings.length > 0) {
+        const { token, ...safeSettings } = allSettings[0];
+        // Add a tokenSet flag to indicate that a token exists
+        // Using type assertion to add the dynamic property
+        (safeSettings as any).tokenSet = !!token;
+        res.json(safeSettings);
+      } else {
+        res.json({});
+      }
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bot settings" });
     }
@@ -381,9 +401,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Return the settings with additional status information
+      // Return the settings with additional status information but exclude the token
+      const { token, ...safeSettings } = settings;
+      // Add a tokenSet flag to indicate that a token exists
       res.json({
-        ...settings,
+        ...safeSettings,
+        tokenSet: !!token,
         status: botStatus
       });
     } catch (error) {
@@ -624,13 +647,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // as permissionsFor is only available on GuildChannels 
           if ('permissionsFor' in channel && client.user) {
             // Check for VIEW_CHANNEL permission
-            if (!(channel as GuildChannel).permissionsFor(client.user).has("ViewChannel")) {
+            if (client.user && !(channel as GuildChannel).permissionsFor(client.user)?.has("ViewChannel")) {
               missingPermissions.push("View Channel");
               hasViewAccess = false;
             }
             
             // Check for READ_MESSAGE_HISTORY permission
-            if (!(channel as GuildChannel).permissionsFor(client.user).has("ReadMessageHistory")) {
+            if (client.user && !(channel as GuildChannel).permissionsFor(client.user)?.has("ReadMessageHistory")) {
               missingPermissions.push("Read Message History");
               hasHistoryAccess = false;
             }
@@ -1177,7 +1200,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     try {
       const settings = await storage.getTelegramBotSettings();
-      res.json(settings || {});
+      if (settings) {
+        const { token, ...safeSettings } = settings;
+        res.json({
+          ...safeSettings,
+          tokenSet: !!token
+        });
+      } else {
+        res.json({});
+      }
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch Telegram bot settings" });
     }
@@ -1192,7 +1223,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const previousSettings = await storage.getTelegramBotSettings();
       const previousToken = previousSettings?.token || '';
       
-      // Update settings
+      // Validate token if provided
+      if (req.body.token) {
+        // Use the centralized token validation utility
+        const validation = validateTelegramToken(req.body.token);
+        
+        if (!validation.isValid) {
+          return res.status(400).json({ 
+            success: false,
+            message: `Invalid token format. ${validation.message}`
+          });
+        }
+        
+        // If the token was cleaned, use the cleaned version
+        if (validation.cleanedToken && validation.cleanedToken !== req.body.token) {
+          log(`Token was cleaned: ${validation.message}`, 'debug');
+          req.body.token = validation.cleanedToken;
+        }
+      }
+      
+      // Update settings with cleaned token
       const settings = await storage.createOrUpdateTelegramBotSettings(req.body);
       
       // Default status
@@ -1213,8 +1263,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         try {
-          // Start the Telegram bot with the new token
-          const result = await startTelegramBot(settings.token);
+          // First, make sure any existing bot instances are stopped
+          if (telegramAPI.isReady()) {
+            log('Forcing cleanup of existing Telegram bot before starting new one', 'debug');
+            
+            // Validate the token to ensure clean format
+            const validation = validateTelegramToken(settings.token);
+            const cleanToken = validation.isValid 
+              ? (validation.cleanedToken || settings.token)
+              : settings.token;
+              
+            // Force a cleanup by initializing with the cleaned token
+            await telegramAPI.initialize(cleanToken, true);
+            
+            // Wait a moment to ensure cleanup is complete
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+          // Start the Telegram bot with the validated token
+          // We've already validated the token in the settings earlier
+          const validationStart = validateTelegramToken(settings.token);
+          const startToken = validationStart.cleanedToken || settings.token;
+          const result = await startTelegramBot(startToken);
           
           // Update status with the result
           botStatus = {
@@ -1236,9 +1306,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Return the settings with additional status information
+      // Return the settings with additional status information but exclude the token
+      const { token, ...safeSettings } = settings;
+      // Add a tokenSet flag to indicate that a token exists
       res.json({
-        ...settings,
+        ...safeSettings,
+        tokenSet: !!token,
         status: botStatus
       });
     } catch (error) {
@@ -1254,12 +1327,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { token } = req.body;
       
-      if (!token) {
-        return res.status(400).json({ error: "Token is required" });
+      // Use the validation utility to check the token
+      const validation = validateTelegramToken(token);
+      
+      if (!validation.isValid) {
+        return res.status(400).json({
+          success: false,
+          message: validation.message
+        });
       }
       
-      // Test the connection with the provided token
-      const result = await telegramAPI.testConnection(token);
+      // Use the cleaned token for all operations
+      const cleanToken = validation.cleanedToken || token;
+      
+      // Log validation result if token was cleaned
+      if (validation.message) {
+        log(`Token validation: ${validation.message}`, 'debug');
+      }
+      
+      // Clean up any existing bot instances first
+      try {
+        const lockPath = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
+        if (fs.existsSync(lockPath)) {
+          log('Removing stale lock file before testing connection', 'debug');
+          fs.unlinkSync(lockPath);
+          // Brief pause to ensure filesystem sync
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      } catch (cleanupError) {
+        // Continue anyway as this is just preparation
+        log(`Warning during test preparation: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, 'debug');
+      }
+      
+      // Test the connection with the cleaned token
+      const result = await telegramAPI.testConnection(cleanToken);
       
       res.json(result);
     } catch (error) {
@@ -1280,21 +1381,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = await storage.getTelegramBotSettings();
       
       if (!settings || !settings.token) {
-        return res.status(400).json({ error: "Telegram bot token is not configured" });
+        return res.status(400).json({ 
+          success: false, 
+          message: "Telegram bot token is not configured" 
+        });
       }
+      
+      // Validate the token before starting the bot
+      const validation = validateTelegramToken(settings.token);
+      if (!validation.isValid) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid token format. ${validation.message}`
+        });
+      }
+      
+      // Use the cleaned token
+      const cleanToken = validation.cleanedToken || settings.token;
       
       if (settings.isActive) {
         return res.json({ success: true, message: "Telegram bot is already active", alreadyRunning: true });
       }
       
-      // Start the bot
-      const result = await startTelegramBot(settings.token);
+      // First, force cleanup any existing bot instances to prevent polling conflicts
+      const lockPath = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
+      try {
+        log('Cleaning up any stale Telegram bot instances before starting...', 'debug');
+        
+        // Remove stale lock file if it exists
+        if (fs.existsSync(lockPath)) {
+          fs.unlinkSync(lockPath);
+          log('Removed stale lock file', 'debug');
+          // Wait a moment for filesystem to sync
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      } catch (cleanupError) {
+        log(`Warning: Unable to clean up previous lock file: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, 'warn');
+        // Continue anyway as we'll try a fresh start
+      }
+      
+      log(`Starting Telegram bot with clean environment...`);
+      
+      // Start the bot with the validated and cleaned token
+      const result = await startTelegramBot(cleanToken);
       
       if (result.success) {
         // Update the settings to mark the bot as active
         await storage.createOrUpdateTelegramBotSettings({
           ...settings,
-          isActive: true
+          isActive: true,
+          username: result.botInfo?.username || settings.username || ''
         });
         
         log(`Telegram bot started successfully: ${result.message}`);
@@ -1334,19 +1470,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!settings.isActive) {
         return res.json({ success: true, message: "Telegram bot is already inactive", alreadyStopped: true });
       }
+
+      // Explicitly clean up Telegram bot resources if it's initialized
+      if (telegramAPI.isReady()) {
+        log('Stopping active Telegram bot instance');
+        
+        // Validate the token before using it
+        const validation = validateTelegramToken(settings.token);
+        const cleanToken = validation.isValid 
+          ? (validation.cleanedToken || settings.token)
+          : settings.token; // Even if invalid, try to stop with original token
+        
+        // Create a new temporary instance to force cleanup
+        await telegramAPI.initialize(cleanToken, true);
+      }
       
-      // The API doesn't have a direct stop method, but we can mark it as inactive
-      // to prevent further processing of messages
+      // Mark the bot as inactive in database
       await storage.createOrUpdateTelegramBotSettings({
         ...settings,
         isActive: false
       });
       
-      log(`Telegram bot marked as inactive`);
+      log(`Telegram bot marked as inactive and resources cleaned up`);
       
       return res.json({
         success: true,
-        message: "Telegram bot has been stopped"
+        message: "Telegram bot has been stopped and resources cleaned up"
       });
     } catch (error) {
       console.error("Error stopping Telegram bot:", error);
