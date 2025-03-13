@@ -11,7 +11,8 @@ import {
   Settings,
   Menu,
   X,
-  LogOut
+  LogOut,
+  MessageSquare
 } from "lucide-react";
 
 interface SidebarProps {
@@ -59,6 +60,12 @@ const Sidebar: FC<SidebarProps> = ({ className }) => {
       href: "/discord-settings",
       icon: <Settings className="mr-3 h-5 w-5" />,
       active: location === "/discord-settings"
+    },
+    {
+      name: "Telegram Settings",
+      href: "/telegram-settings",
+      icon: <MessageSquare className="mr-3 h-5 w-5" />,
+      active: location === "/telegram-settings"
     }
   ];
 
