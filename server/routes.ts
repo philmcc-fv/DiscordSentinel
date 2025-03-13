@@ -1222,7 +1222,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const previousSettings = await storage.getTelegramBotSettings();
       const previousToken = previousSettings?.token || '';
       
-      // Update settings
+      // Validate token if provided
+      if (req.body.token) {
+        // Check for unescaped characters in the token
+        if (!req.body.token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
+          log('Warning: Telegram token in request does not match expected format. Cleaning...', 'warn');
+          
+          // Clean the token to only allow valid characters for a Telegram bot token
+          const cleanToken = req.body.token.replace(/[^\d:A-Za-z0-9_-]/g, '');
+          
+          if (cleanToken !== req.body.token) {
+            log('Token was cleaned to remove invalid characters', 'debug');
+            // Replace the token with the cleaned version
+            req.body.token = cleanToken;
+          }
+          
+          // If the token is now invalid after cleaning, return an error
+          if (!cleanToken || cleanToken.length < 10) {
+            return res.status(400).json({ 
+              error: "Invalid token format. Token should start with digits followed by a colon and alphanumeric characters. Please check for any special or control characters in your token."
+            });
+          }
+        }
+      }
+      
+      // Update settings with cleaned token
       const settings = await storage.createOrUpdateTelegramBotSettings(req.body);
       
       // Default status
@@ -1243,6 +1267,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         try {
+          // First, make sure any existing bot instances are stopped
+          if (telegramAPI.isReady()) {
+            log('Forcing cleanup of existing Telegram bot before starting new one', 'debug');
+            // Force a cleanup by initializing with the new token
+            await telegramAPI.initialize(settings.token, true);
+            
+            // Wait a moment to ensure cleanup is complete
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
           // Start the Telegram bot with the new token
           const result = await startTelegramBot(settings.token);
           
@@ -1289,6 +1323,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (!token) {
         return res.status(400).json({ error: "Token is required" });
+      }
+      
+      // Clean up any existing bot instances first
+      try {
+        const lockPath = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
+        if (fs.existsSync(lockPath)) {
+          log('Removing stale lock file before testing connection', 'debug');
+          fs.unlinkSync(lockPath);
+          // Brief pause to ensure filesystem sync
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      } catch (cleanupError) {
+        // Continue anyway as this is just preparation
+        log(`Warning during test preparation: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, 'debug');
       }
       
       // Test the connection with the provided token

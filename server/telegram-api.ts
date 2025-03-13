@@ -194,14 +194,25 @@ class TelegramAPI {
       try {
         log('Stopping existing Telegram bot...', 'debug');
         
-        // Stop the polling
-        this.bot.stopPolling();
+        // Stop the polling first
+        try {
+          this.bot.stopPolling();
+          log('Stopped bot polling', 'debug');
+        } catch (pollingError) {
+          log(`Error stopping polling: ${pollingError instanceof Error ? pollingError.message : String(pollingError)}`, 'warn');
+          // Continue with cleanup even if stopping polling fails
+        }
         
         // Wait for polling to stop
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
-        // Remove all event listeners
-        this.bot.removeAllListeners();
+        // Remove all event listeners to prevent memory leaks
+        try {
+          this.bot.removeAllListeners();
+          log('Removed all event listeners', 'debug');
+        } catch (listenerError) {
+          log(`Error removing listeners: ${listenerError instanceof Error ? listenerError.message : String(listenerError)}`, 'warn');
+        }
         
         // Attempt to abort any ongoing network connections
         try {
@@ -209,23 +220,51 @@ class TelegramAPI {
           if (this.bot._polling && typeof this.bot._polling.abort === 'function') {
             // @ts-ignore
             this.bot._polling.abort();
+            log('Aborted polling manually', 'debug');
           }
         } catch (e) {
           // Ignore errors when accessing private methods
+          log('Could not abort polling manually, continuing with cleanup', 'debug');
         }
         
-        // Clear reference
+        // Close any active WebHooks if present
+        try {
+          // @ts-ignore - Check if webhook exists and close it
+          if (this.bot._webHook) {
+            // @ts-ignore
+            this.bot._webHook.close();
+            log('Closed webhook', 'debug');
+          }
+        } catch (webhookError) {
+          // Ignore errors with webhook closing
+        }
+        
+        // Explicitly null any internal references to help garbage collection
+        try {
+          // @ts-ignore
+          if (this.bot._polling) this.bot._polling = null;
+          // @ts-ignore
+          if (this.bot._webHook) this.bot._webHook = null;
+          // @ts-ignore
+          if (this.bot._request) this.bot._request = null;
+        } catch (nullError) {
+          // Ignore errors when accessing private properties
+        }
+        
+        // Clear our reference to the bot instance
         this.bot = null;
         
         // Additional waiting to ensure all resources are released
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
         // Release our lock
         this.releaseLock();
         
-        log('Telegram bot stopped successfully', 'debug');
+        log('Telegram bot stopped and resources cleaned up successfully', 'debug');
       } catch (stopError) {
-        log(`Error stopping Telegram bot: ${stopError instanceof Error ? stopError.message : String(stopError)}`, 'error');
+        log(`Error during Telegram bot cleanup: ${stopError instanceof Error ? stopError.message : String(stopError)}`, 'error');
+        // Try to release the lock even if there was an error
+        this.releaseLock();
       }
     }
     
@@ -257,14 +296,41 @@ class TelegramAPI {
    */
   async testConnection(token: string): Promise<{ success: boolean, message: string, botInfo?: TelegramBot.User }> {
     try {
-      // Clean the token from any invisible/control characters
-      const cleanToken = token.replace(/[^\x20-\x7E]/g, '');
+      if (!token) {
+        return {
+          success: false,
+          message: "No Telegram bot token provided"
+        };
+      }
+      
+      // Validate token format
+      if (!token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
+        log('Warning: Telegram token does not match expected format. Attempting to clean...', 'warn');
+      }
+      
+      // Clean the token to only allow valid characters for a Telegram bot token
+      // Only digits, letters, colons, underscores, and hyphens are valid
+      const cleanToken = token.replace(/[^\d:A-Za-z0-9_-]/g, '');
+      
+      if (cleanToken !== token) {
+        log('Token was cleaned to remove invalid characters', 'debug');
+      }
+      
+      if (!cleanToken || cleanToken.length < 10) {
+        return {
+          success: false,
+          message: "Invalid token format after cleaning. Token should start with digits followed by a colon and alphanumeric characters"
+        };
+      }
       
       // Create a temporary bot instance for testing (no polling)
       const testBot = new TelegramBot(cleanToken, { polling: false });
       
       // Try to get bot info
       const botInfo = await testBot.getMe();
+      
+      // Clean up resources
+      testBot.removeAllListeners();
       
       return {
         success: true,
@@ -275,8 +341,14 @@ class TelegramAPI {
       let errorMessage = error instanceof Error ? error.message : String(error);
       
       // Enhance error message for common issues
-      if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("characters")) {
+      if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("Unauthorized")) {
+        errorMessage = "Invalid bot token. Please check your token and try again.";
+      } else if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("characters")) {
         errorMessage = "Invalid token format. Please check for any special or non-printable characters in your token.";
+      } else if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("409 Conflict")) {
+        errorMessage = "Multiple bot instances are running with the same token. Please try again in a few moments.";
+      } else if (errorMessage.includes("ENOTFOUND") || errorMessage.includes("ETIMEDOUT")) {
+        errorMessage = "Network error. Please check your internet connection and try again.";
       }
       
       return {
