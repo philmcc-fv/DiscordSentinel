@@ -306,8 +306,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Get all settings
       const allSettings = await storage.getAllBotSettings();
-      // Return the first (most recent) settings or an empty object
-      res.json(allSettings.length > 0 ? allSettings[0] : {});
+      
+      // Return the first (most recent) settings or an empty object, but exclude the token
+      if (allSettings.length > 0) {
+        const { token, ...safeSettings } = allSettings[0];
+        // Add a tokenSet flag to indicate that a token exists
+        safeSettings.tokenSet = !!token;
+        res.json(safeSettings);
+      } else {
+        res.json({});
+      }
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bot settings" });
     }
@@ -381,9 +389,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Return the settings with additional status information
+      // Return the settings with additional status information but exclude the token
+      const { token, ...safeSettings } = settings;
+      // Add a tokenSet flag to indicate that a token exists
       res.json({
-        ...settings,
+        ...safeSettings,
+        tokenSet: !!token,
         status: botStatus
       });
     } catch (error) {
