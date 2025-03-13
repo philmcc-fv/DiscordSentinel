@@ -89,23 +89,50 @@ export interface IStorage {
   getMessagesByDateRange(startDate: Date, endDate: Date): Promise<DiscordMessage[]>;
   createDiscordMessage(message: InsertDiscordMessage): Promise<DiscordMessage>;
 
-  // Channel monitoring
+  // Discord channel monitoring
   isChannelMonitored(channelId: string): Promise<boolean>;
   setChannelMonitored(channelId: string, guildId: string, monitor: boolean): Promise<void>;
   getMonitoredChannels(guildId: string): Promise<string[]>;
 
-  // User exclusion management
+  // Discord user exclusion management
   getExcludedUsers(guildId: string): Promise<ExcludedUser[]>;
   isUserExcluded(userId: string, guildId: string): Promise<boolean>;
   excludeUser(userData: InsertExcludedUser): Promise<ExcludedUser>;
   removeExcludedUser(userId: string, guildId: string): Promise<void>;
 
-  // Bot settings
+  // Discord bot settings
   getBotSettings(guildId: string): Promise<BotSettings | undefined>;
   getAllBotSettings(): Promise<BotSettings[]>;
   createOrUpdateBotSettings(settings: InsertBotSettings): Promise<BotSettings>;
 
-  // Analytics
+  // Telegram chat management
+  getTelegramChats(): Promise<TelegramChat[]>;
+  getTelegramChat(chatId: string): Promise<TelegramChat | undefined>;
+  createTelegramChat(chat: InsertTelegramChat): Promise<TelegramChat>;
+  updateTelegramChat(chat: InsertTelegramChat): Promise<TelegramChat>;
+
+  // Telegram message management
+  getRecentTelegramMessages(limit?: number, filters?: { sentiment?: string; chatId?: string; search?: string; }): Promise<TelegramMessage[]>;
+  getTelegramMessagesByDate(date: Date): Promise<TelegramMessage[]>;
+  getTelegramMessagesByDateRange(startDate: Date, endDate: Date): Promise<TelegramMessage[]>;
+  createTelegramMessage(message: InsertTelegramMessage): Promise<TelegramMessage>;
+
+  // Telegram chat monitoring
+  isTelegramChatMonitored(chatId: string): Promise<boolean>;
+  setTelegramChatMonitored(chatId: string, monitor: boolean): Promise<void>;
+  getMonitoredTelegramChats(): Promise<string[]>;
+
+  // Telegram user exclusion management
+  getExcludedTelegramUsers(): Promise<ExcludedTelegramUser[]>;
+  isTelegramUserExcluded(userId: string): Promise<boolean>;
+  excludeTelegramUser(userData: InsertExcludedTelegramUser): Promise<ExcludedTelegramUser>;
+  removeExcludedTelegramUser(userId: string): Promise<void>;
+
+  // Telegram bot settings
+  getTelegramBotSettings(): Promise<TelegramBotSettings | undefined>;
+  createOrUpdateTelegramBotSettings(settings: InsertTelegramBotSettings): Promise<TelegramBotSettings>;
+
+  // Analytics (combined for both platforms)
   getSentimentByDateRange(startDate: Date, endDate: Date): Promise<DailySentimentData[]>;
   getSentimentDistribution(days?: number): Promise<SentimentDistribution>;
   getStats(): Promise<{
@@ -512,24 +539,362 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // Telegram chat management
+  async getTelegramChats(): Promise<TelegramChat[]> {
+    return db.select().from(telegramChats).orderBy(telegramChats.title);
+  }
+
+  async getTelegramChat(chatId: string): Promise<TelegramChat | undefined> {
+    const [chat] = await db
+      .select()
+      .from(telegramChats)
+      .where(eq(telegramChats.chatId, chatId));
+    return chat;
+  }
+
+  async createTelegramChat(chat: InsertTelegramChat): Promise<TelegramChat> {
+    try {
+      const [newChat] = await db
+        .insert(telegramChats)
+        .values(chat)
+        .returning();
+      return newChat;
+    } catch (error) {
+      // If there's a duplicate, try to update instead
+      if (error instanceof Error && error.message.includes('duplicate key')) {
+        return this.updateTelegramChat(chat);
+      }
+      throw error;
+    }
+  }
+  
+  async updateTelegramChat(chat: InsertTelegramChat): Promise<TelegramChat> {
+    const [updatedChat] = await db
+      .update(telegramChats)
+      .set({
+        title: chat.title,
+        username: chat.username,
+        type: chat.type
+      })
+      .where(eq(telegramChats.chatId, chat.chatId))
+      .returning();
+    return updatedChat;
+  }
+
+  // Telegram message management
+  async getRecentTelegramMessages(
+    limit: number = 20, 
+    filters?: { 
+      sentiment?: string;
+      chatId?: string;
+      search?: string;
+    }
+  ): Promise<TelegramMessage[]> {
+    // Start building the SQL query
+    let sqlQuery = `
+      SELECT * FROM telegram_messages
+      WHERE 1=1
+    `;
+    
+    const params: any[] = [];
+    let paramIndex = 1;
+    
+    // Apply sentiment filter if provided and not 'all'
+    if (filters?.sentiment && filters.sentiment !== 'all') {
+      sqlQuery += ` AND sentiment = $${paramIndex}`;
+      params.push(filters.sentiment);
+      paramIndex++;
+    }
+    
+    // Apply chat filter if provided and not 'all'
+    if (filters?.chatId && filters.chatId !== 'all') {
+      sqlQuery += ` AND chat_id = $${paramIndex}`;
+      params.push(filters.chatId);
+      paramIndex++;
+    }
+    
+    // Apply text search if provided
+    if (filters?.search && filters.search.trim() !== '') {
+      const searchTerm = `%${filters.search.toLowerCase()}%`;
+      sqlQuery += ` AND (LOWER(content) LIKE $${paramIndex} OR LOWER(username) LIKE $${paramIndex} OR LOWER(first_name) LIKE $${paramIndex} OR LOWER(last_name) LIKE $${paramIndex})`;
+      params.push(searchTerm);
+      paramIndex++;
+    }
+    
+    // Add ordering and limit
+    sqlQuery += ` ORDER BY created_at DESC LIMIT $${paramIndex}`;
+    params.push(limit);
+    
+    // Execute the query using the postgres client directly
+    const results = await pgClient.unsafe(sqlQuery, params);
+    
+    // Map results to TelegramMessage type
+    return results.map(row => {
+      const message: TelegramMessage = {
+        id: Number(row.id),
+        messageId: String(row.message_id),
+        chatId: String(row.chat_id),
+        userId: row.user_id ? String(row.user_id) : null,
+        username: row.username ? String(row.username) : null,
+        firstName: row.first_name ? String(row.first_name) : null,
+        lastName: row.last_name ? String(row.last_name) : null,
+        content: String(row.content),
+        sentiment: String(row.sentiment) as SentimentType,
+        sentimentScore: Number(row.sentiment_score),
+        createdAt: new Date(String(row.created_at)),
+        analyzedAt: new Date(String(row.analyzed_at))
+      };
+      return message;
+    });
+  }
+
+  async getTelegramMessagesByDate(date: Date): Promise<TelegramMessage[]> {
+    const start = startOfDay(date);
+    const end = endOfDay(date);
+    
+    return db
+      .select()
+      .from(telegramMessages)
+      .where(
+        and(
+          gte(telegramMessages.createdAt, start),
+          lte(telegramMessages.createdAt, end)
+        )
+      )
+      .orderBy(desc(telegramMessages.createdAt));
+  }
+
+  async getTelegramMessagesByDateRange(startDate: Date, endDate: Date): Promise<TelegramMessage[]> {
+    return db
+      .select()
+      .from(telegramMessages)
+      .where(
+        and(
+          gte(telegramMessages.createdAt, startDate),
+          lte(telegramMessages.createdAt, endDate)
+        )
+      )
+      .orderBy(desc(telegramMessages.createdAt));
+  }
+
+  async createTelegramMessage(message: InsertTelegramMessage): Promise<TelegramMessage> {
+    const [newMessage] = await db
+      .insert(telegramMessages)
+      .values(message)
+      .returning();
+    return newMessage;
+  }
+
+  // Telegram chat monitoring
+  async isTelegramChatMonitored(chatId: string): Promise<boolean> {
+    const [chat] = await db
+      .select()
+      .from(monitoredTelegramChats)
+      .where(eq(monitoredTelegramChats.chatId, chatId));
+    
+    return !!chat;
+  }
+
+  async setTelegramChatMonitored(chatId: string, monitor: boolean): Promise<void> {
+    if (monitor) {
+      // First check if it's already monitored
+      const [existing] = await db
+        .select()
+        .from(monitoredTelegramChats)
+        .where(eq(monitoredTelegramChats.chatId, chatId));
+      
+      if (!existing) {
+        await db
+          .insert(monitoredTelegramChats)
+          .values({
+            chatId
+          });
+      }
+    } else {
+      await db
+        .delete(monitoredTelegramChats)
+        .where(eq(monitoredTelegramChats.chatId, chatId));
+    }
+  }
+
+  async getMonitoredTelegramChats(): Promise<string[]> {
+    const chats = await db
+      .select()
+      .from(monitoredTelegramChats);
+    
+    return chats.map(c => c.chatId);
+  }
+
+  // Telegram user exclusion management
+  async getExcludedTelegramUsers(): Promise<ExcludedTelegramUser[]> {
+    // Use raw SQL to ensure consistent field naming
+    const query = sql`
+      SELECT 
+        id, 
+        user_id, 
+        username, 
+        first_name,
+        last_name,
+        reason, 
+        created_at
+      FROM excluded_telegram_users
+      ORDER BY username, first_name
+    `;
+    
+    const results = await db.execute(query);
+    
+    // Transform from db snake_case to camelCase with explicit type casting
+    return results.map(row => ({
+      id: Number(row.id),
+      userId: String(row.user_id),
+      username: row.username ? String(row.username) : null,
+      firstName: row.first_name ? String(row.first_name) : null,
+      lastName: row.last_name ? String(row.last_name) : null,
+      reason: row.reason ? String(row.reason) : null,
+      createdAt: row.created_at ? new Date(String(row.created_at)) : new Date()
+    }));
+  }
+
+  async isTelegramUserExcluded(userId: string): Promise<boolean> {
+    // Use raw SQL query to ensure consistent field naming
+    const query = sql`
+      SELECT 1 FROM excluded_telegram_users
+      WHERE user_id = ${userId}
+      LIMIT 1
+    `;
+    
+    const result = await db.execute(query);
+    return result.length > 0;
+  }
+
+  async excludeTelegramUser(userData: InsertExcludedTelegramUser): Promise<ExcludedTelegramUser> {
+    try {
+      // Format current date as ISO string which PostgreSQL can parse
+      const currentTime = new Date().toISOString();
+      
+      // Use raw SQL approach for inserting
+      const query = sql`
+        INSERT INTO excluded_telegram_users (user_id, username, first_name, last_name, reason, created_at)
+        VALUES (${userData.userId}, ${userData.username || null}, ${userData.firstName || null}, ${userData.lastName || null}, ${userData.reason || null}, ${currentTime})
+        RETURNING *
+      `;
+      
+      const result = await db.execute(query);
+      
+      // Convert from db snake_case to camelCase with explicit type casting
+      return {
+        id: Number(result[0].id),
+        userId: String(result[0].user_id),
+        username: result[0].username ? String(result[0].username) : null,
+        firstName: result[0].first_name ? String(result[0].first_name) : null,
+        lastName: result[0].last_name ? String(result[0].last_name) : null,
+        reason: result[0].reason ? String(result[0].reason) : null,
+        createdAt: result[0].created_at ? new Date(String(result[0].created_at)) : new Date()
+      };
+    } catch (error) {
+      // If there's a duplicate, just return the existing user
+      if (error instanceof Error && error.message.includes('duplicate key')) {
+        const query = sql`
+          SELECT * FROM excluded_telegram_users
+          WHERE user_id = ${userData.userId}
+        `;
+        
+        const result = await db.execute(query);
+        
+        // Convert from db snake_case to camelCase with explicit type casting
+        return {
+          id: Number(result[0].id),
+          userId: String(result[0].user_id),
+          username: result[0].username ? String(result[0].username) : null,
+          firstName: result[0].first_name ? String(result[0].first_name) : null,
+          lastName: result[0].last_name ? String(result[0].last_name) : null,
+          reason: result[0].reason ? String(result[0].reason) : null,
+          createdAt: result[0].created_at ? new Date(String(result[0].created_at)) : new Date()
+        };
+      }
+      
+      console.error('Error excluding Telegram user:', error);
+      throw error;
+    }
+  }
+
+  async removeExcludedTelegramUser(userId: string): Promise<void> {
+    // Use raw SQL to delete
+    const query = sql`
+      DELETE FROM excluded_telegram_users
+      WHERE user_id = ${userId}
+    `;
+    
+    await db.execute(query);
+  }
+
+  // Telegram bot settings
+  async getTelegramBotSettings(): Promise<TelegramBotSettings | undefined> {
+    const [settings] = await db
+      .select()
+      .from(telegramBotSettings)
+      .orderBy(desc(telegramBotSettings.updatedAt))
+      .limit(1);
+    
+    return settings;
+  }
+
+  async createOrUpdateTelegramBotSettings(settings: InsertTelegramBotSettings): Promise<TelegramBotSettings> {
+    // Check if any settings already exist
+    const existing = await this.getTelegramBotSettings();
+    
+    if (existing) {
+      const [updated] = await db
+        .update(telegramBotSettings)
+        .set({
+          ...settings,
+          updatedAt: new Date()
+        })
+        .where(eq(telegramBotSettings.id, existing.id))
+        .returning();
+      
+      return updated;
+    } else {
+      const [newSettings] = await db
+        .insert(telegramBotSettings)
+        .values(settings)
+        .returning();
+      
+      return newSettings;
+    }
+  }
+
   // Analytics
   async getSentimentByDateRange(startDate: Date, endDate: Date): Promise<DailySentimentData[]> {
-    const messages = await this.getMessagesByDateRange(startDate, endDate);
+    // Get messages from both Discord and Telegram
+    const discordMessages = await this.getMessagesByDateRange(startDate, endDate);
+    const telegramMessages = await this.getTelegramMessagesByDateRange(startDate, endDate);
     
-    // Group messages by date
-    const messagesByDate = messages.reduce((acc, message) => {
+    // Combine all messages
+    const combinedMessagesByDate: Record<string, Array<DiscordMessage | TelegramMessage>> = {};
+    
+    // Group Discord messages by date
+    discordMessages.forEach(message => {
       const dateStr = format(message.createdAt, 'yyyy-MM-dd');
-      if (!acc[dateStr]) {
-        acc[dateStr] = [];
+      if (!combinedMessagesByDate[dateStr]) {
+        combinedMessagesByDate[dateStr] = [];
       }
-      acc[dateStr].push(message);
-      return acc;
-    }, {} as Record<string, DiscordMessage[]>);
+      combinedMessagesByDate[dateStr].push(message);
+    });
+    
+    // Group Telegram messages by date
+    telegramMessages.forEach(message => {
+      const dateStr = format(message.createdAt, 'yyyy-MM-dd');
+      if (!combinedMessagesByDate[dateStr]) {
+        combinedMessagesByDate[dateStr] = [];
+      }
+      combinedMessagesByDate[dateStr].push(message);
+    });
     
     // Process each date's data
     const result: DailySentimentData[] = [];
     
-    for (const [dateStr, dateMessages] of Object.entries(messagesByDate)) {
+    for (const [dateStr, messages] of Object.entries(combinedMessagesByDate)) {
       const sentimentCounts = {
         very_positive: 0,
         positive: 0,
@@ -541,17 +906,17 @@ export class DatabaseStorage implements IStorage {
       let sentimentSum = 0;
       
       // Count messages by sentiment
-      for (const message of dateMessages) {
+      for (const message of messages) {
         sentimentCounts[message.sentiment as SentimentType]++;
         sentimentSum += message.sentimentScore;
       }
       
-      const averageSentiment = sentimentSum / dateMessages.length;
+      const averageSentiment = sentimentSum / messages.length;
       
       result.push({
         date: dateStr,
         averageSentiment,
-        messageCount: dateMessages.length,
+        messageCount: messages.length,
         sentimentCounts
       });
     }
@@ -566,7 +931,11 @@ export class DatabaseStorage implements IStorage {
     const endDate = new Date();
     const startDate = subDays(endDate, days);
     
-    const messages = await this.getMessagesByDateRange(startDate, endDate);
+    // Get both Discord and Telegram messages
+    const discordMessages = await this.getMessagesByDateRange(startDate, endDate);
+    const telegramMessages = await this.getTelegramMessagesByDateRange(startDate, endDate);
+    
+    const totalCount = discordMessages.length + telegramMessages.length;
     
     const distribution = {
       very_positive: 0,
@@ -574,10 +943,16 @@ export class DatabaseStorage implements IStorage {
       neutral: 0,
       negative: 0,
       very_negative: 0,
-      total: messages.length
+      total: totalCount
     };
     
-    for (const message of messages) {
+    // Process Discord messages
+    for (const message of discordMessages) {
+      distribution[message.sentiment as SentimentType]++;
+    }
+    
+    // Process Telegram messages
+    for (const message of telegramMessages) {
       distribution[message.sentiment as SentimentType]++;
     }
     
@@ -592,27 +967,47 @@ export class DatabaseStorage implements IStorage {
     sentimentGrowth: number;
     userGrowth: number;
   }> {
-    // Get total messages
-    const [{ value: totalMessages }] = await db
+    // Get total messages (Discord + Telegram)
+    const [{ value: discordTotal }] = await db
       .select({ value: count() })
       .from(discordMessages);
+      
+    const [{ value: telegramTotal }] = await db
+      .select({ value: count() })
+      .from(telegramMessages);
+      
+    const totalMessages = discordTotal + telegramTotal;
     
     // Get messages from last 30 days for average sentiment
     const endDate = new Date();
     const startDate = subDays(endDate, 30);
-    const recentMessages = await this.getMessagesByDateRange(startDate, endDate);
+    
+    // Get both Discord and Telegram messages
+    const recentDiscordMessages = await this.getMessagesByDateRange(startDate, endDate);
+    const recentTelegramMessages = await this.getTelegramMessagesByDateRange(startDate, endDate);
     
     // Calculate avg sentiment for current period
     let sentimentSum = 0;
     const userSet = new Set<string>();
     
-    for (const message of recentMessages) {
+    // Process Discord messages
+    for (const message of recentDiscordMessages) {
       sentimentSum += message.sentimentScore;
-      userSet.add(message.userId);
+      userSet.add(`discord:${message.userId}`);
     }
     
-    const avgSentimentScore = recentMessages.length > 0 
-      ? sentimentSum / recentMessages.length 
+    // Process Telegram messages
+    for (const message of recentTelegramMessages) {
+      sentimentSum += message.sentimentScore;
+      if (message.userId) {
+        userSet.add(`telegram:${message.userId}`);
+      }
+    }
+    
+    const totalRecentMessages = recentDiscordMessages.length + recentTelegramMessages.length;
+    
+    const avgSentimentScore = totalRecentMessages > 0 
+      ? sentimentSum / totalRecentMessages 
       : 2; // Default to neutral
     
     // Map score to sentiment label
@@ -628,25 +1023,39 @@ export class DatabaseStorage implements IStorage {
     
     // Calculate data for previous period
     const prevPeriodStart = subDays(startDate, 30);
-    const prevMessages = await this.getMessagesByDateRange(prevPeriodStart, startDate);
+    
+    // Get previous period messages
+    const prevDiscordMessages = await this.getMessagesByDateRange(prevPeriodStart, startDate);
+    const prevTelegramMessages = await this.getTelegramMessagesByDateRange(prevPeriodStart, startDate);
+    
+    const totalPrevMessages = prevDiscordMessages.length + prevTelegramMessages.length;
     
     // Calculate message growth
     let messageGrowth = 0;
-    if (prevMessages.length > 0) {
-      messageGrowth = ((recentMessages.length - prevMessages.length) / prevMessages.length) * 100;
+    if (totalPrevMessages > 0) {
+      messageGrowth = ((totalRecentMessages - totalPrevMessages) / totalPrevMessages) * 100;
     }
     
     // Calculate sentiment growth
     let prevSentimentSum = 0;
     const prevUserSet = new Set<string>();
     
-    for (const message of prevMessages) {
+    // Process Discord messages from previous period
+    for (const message of prevDiscordMessages) {
       prevSentimentSum += message.sentimentScore;
-      prevUserSet.add(message.userId);
+      prevUserSet.add(`discord:${message.userId}`);
     }
     
-    const prevAvgSentimentScore = prevMessages.length > 0 
-      ? prevSentimentSum / prevMessages.length 
+    // Process Telegram messages from previous period
+    for (const message of prevTelegramMessages) {
+      prevSentimentSum += message.sentimentScore;
+      if (message.userId) {
+        prevUserSet.add(`telegram:${message.userId}`);
+      }
+    }
+    
+    const prevAvgSentimentScore = totalPrevMessages > 0 
+      ? prevSentimentSum / totalPrevMessages 
       : 2; // Default to neutral
     
     let sentimentGrowth = 0;
