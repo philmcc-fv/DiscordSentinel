@@ -30,9 +30,12 @@ interface RecentMessagesProps {
   limit?: number;
 }
 
-const RecentMessages: FC<RecentMessagesProps> = ({ limit = 5 }) => {
+const RecentMessages: FC<RecentMessagesProps> = ({ limit = 10 }) => {
   const { data, isLoading, error } = useQuery<CombinedMessage[]>({
-    queryKey: ["/api/recent-messages", { limit }],
+    queryKey: ["/api/recent-messages", { 
+      limit: 20, // Increased to show more messages like the Messages page
+      platform: 'all' // Ensure we get messages from all platforms 
+    }],
     refetchInterval: 10000, // Refresh every 10 seconds
   });
 
