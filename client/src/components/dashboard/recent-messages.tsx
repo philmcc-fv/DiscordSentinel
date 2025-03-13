@@ -3,22 +3,51 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { MessageSquare } from "lucide-react";
+import { MessageSquare, MessageCircle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getSentimentClass, getSentimentBorderClass, getInitials, formatDateTime } from "@/lib/utils";
-import { DiscordMessage, SentimentType } from "@shared/schema";
+import { SentimentType } from "@shared/schema";
+import { FaDiscord, FaTelegram } from "react-icons/fa";
+
+// Update to use the new combined message type
+interface CombinedMessage {
+  id: string;
+  platform: 'discord' | 'telegram';
+  channelId: string;
+  channelName?: string;
+  userId: string;
+  username: string;
+  content: string;
+  sentiment: SentimentType;
+  sentimentScore: number;
+  createdAt: Date | string;
+  firstName?: string;
+  lastName?: string;
+  chatTitle?: string;
+}
 
 interface RecentMessagesProps {
   limit?: number;
 }
 
 const RecentMessages: FC<RecentMessagesProps> = ({ limit = 5 }) => {
-  const { data, isLoading, error } = useQuery<DiscordMessage[]>({
+  const { data, isLoading, error } = useQuery<CombinedMessage[]>({
     queryKey: ["/api/recent-messages", { limit }],
     refetchInterval: 10000, // Refresh every 10 seconds
   });
 
-  const renderMessageItem = (message: DiscordMessage) => {
+  const getPlatformIcon = (platform: string) => {
+    switch (platform) {
+      case 'discord':
+        return <FaDiscord className="h-4 w-4 text-[#5865F2]" />;
+      case 'telegram': 
+        return <FaTelegram className="h-4 w-4 text-[#0088cc]" />;
+      default:
+        return <MessageCircle className="h-4 w-4" />;
+    }
+  };
+
+  const renderMessageItem = (message: CombinedMessage) => {
     return (
       <div 
         key={message.id} 
@@ -26,19 +55,31 @@ const RecentMessages: FC<RecentMessagesProps> = ({ limit = 5 }) => {
       >
         <div className="flex justify-between items-start">
           <div className="flex items-center">
-            <div className="bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center mr-2">
+            <div className="bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center mr-2 relative">
               <span className="text-xs font-medium text-gray-600">
                 {getInitials(message.username)}
               </span>
+              <div className="absolute -bottom-1 -right-1">
+                {getPlatformIcon(message.platform)}
+              </div>
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-800">{message.username}</p>
-              <p className="text-xs text-gray-500">#{message.channelId}</p>
+              <p className="text-sm font-medium text-gray-800">
+                {message.username}
+                {message.firstName && message.lastName && ` (${message.firstName} ${message.lastName})`}
+              </p>
+              <p className="text-xs text-gray-500">
+                {message.platform === 'telegram' && message.chatTitle ? 
+                  message.chatTitle : 
+                  `#${message.channelId}`
+                }
+              </p>
             </div>
           </div>
           <div>
-            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getSentimentClass(message.sentiment as SentimentType)}`}>
-              {message.sentiment.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+            <span className={`px-2 py-1 text-xs font-medium rounded-full bg-opacity-90 border border-gray-300 ${getSentimentClass(message.sentiment as SentimentType)}`}>
+              {typeof message.sentiment === 'string' && 
+                message.sentiment.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
             </span>
           </div>
         </div>
