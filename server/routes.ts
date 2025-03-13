@@ -293,7 +293,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     try {
       const settings = await storage.getBotSettings(req.params.guildId);
-      res.json(settings || { guildId: req.params.guildId, isActive: false, monitorAllChannels: false });
+      if (settings) {
+        const { token, ...safeSettings } = settings;
+        res.json({
+          ...safeSettings,
+          tokenSet: !!token
+        });
+      } else {
+        res.json({ guildId: req.params.guildId, isActive: false, monitorAllChannels: false });
+      }
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch bot settings" });
     }
@@ -1188,7 +1196,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     try {
       const settings = await storage.getTelegramBotSettings();
-      res.json(settings || {});
+      if (settings) {
+        const { token, ...safeSettings } = settings;
+        res.json({
+          ...safeSettings,
+          tokenSet: !!token
+        });
+      } else {
+        res.json({});
+      }
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch Telegram bot settings" });
     }
@@ -1247,9 +1263,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Return the settings with additional status information
+      // Return the settings with additional status information but exclude the token
+      const { token, ...safeSettings } = settings;
+      // Add a tokenSet flag to indicate that a token exists
       res.json({
-        ...settings,
+        ...safeSettings,
+        tokenSet: !!token,
         status: botStatus
       });
     } catch (error) {
