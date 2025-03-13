@@ -10,6 +10,7 @@ import { analyzeSentiment } from "./openai";
 import { GuildChannel } from "discord.js";
 import { telegramAPI } from "./telegram-api";
 import { startTelegramBot, setupMessageListeners as setupTelegramMessageListeners, fetchHistoricalMessages as fetchTelegramHistoricalMessages } from "./telegram-bot";
+import * as TelegramBot from 'node-telegram-bot-api';
 
 
 export async function registerRoutes(app: Express): Promise<Server> {

@@ -35,6 +35,35 @@ export default function TelegramSettingsPage() {
     queryKey: ["/api/monitored-telegram-chats"],
   });
   
+  // Create a refreshChats mutation to use the new live chats endpoint
+  const [isRefreshingChats, setIsRefreshingChats] = useState(false);
+  const refreshChatsMutation = useMutation({
+    mutationFn: async () => {
+      setIsRefreshingChats(true);
+      const res = await apiRequest("GET", "/api/telegram-chats/live");
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Chats refreshed",
+        description: "Updated chat list with the latest available Telegram chats.",
+      });
+      // Refresh all chat-related queries
+      queryClient.invalidateQueries({ queryKey: ["/api/telegram-chats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/monitored-telegram-chats"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to refresh chats",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+    onSettled: () => {
+      setIsRefreshingChats(false);
+    }
+  });
+  
   // Update form values when bot settings are loaded
   useEffect(() => {
     if (botSettings) {
