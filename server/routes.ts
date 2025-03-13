@@ -1319,11 +1319,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
     try {
-      const { token } = req.body;
+      let { token } = req.body;
       
       if (!token) {
-        return res.status(400).json({ error: "Token is required" });
+        return res.status(400).json({ success: false, message: "Token is required" });
       }
+      
+      // Basic format validation before sending to API
+      if (!token.includes(':')) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid token format. Token must contain a colon separating the bot ID and secret."
+        });
+      }
+      
+      // Remove whitespace and non-printable characters that could cause issues
+      token = token.trim().replace(/[\u0000-\u001F\u007F-\u009F\s]/g, '');
       
       // Clean up any existing bot instances first
       try {

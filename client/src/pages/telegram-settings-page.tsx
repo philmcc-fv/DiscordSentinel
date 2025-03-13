@@ -452,6 +452,12 @@ export default function TelegramSettingsPage() {
                     <p className="text-xs text-muted-foreground">
                       Create a bot with @BotFather on Telegram and paste the token here
                     </p>
+                    <div className="text-xs text-muted-foreground mt-2 p-2 border rounded-md border-orange-200 bg-orange-50 dark:bg-orange-950 dark:border-orange-900">
+                      <p className="font-semibold text-orange-700 dark:text-orange-300">Token Format Guide</p>
+                      <p className="mt-1">Valid format: <code className="bg-orange-100 dark:bg-orange-900 px-1 py-0.5 rounded">123456789:ABCDefgh-ijKLmnoPQRst_uvwxyz</code></p>
+                      <p className="mt-1">Your token must have numbers, a colon, then letters, numbers, hyphens, and underscores only.</p>
+                      <p className="mt-1">Copy directly from BotFather without adding any extra characters or whitespace.</p>
+                    </div>
                   </div>
                   
                   <div className="space-y-2">
