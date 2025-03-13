@@ -620,15 +620,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // We need to check if this is a guild channel (with permissions) vs DM channel
           // as permissionsFor is only available on GuildChannels 
-          if ('permissionsFor' in channel) {
+          if ('permissionsFor' in channel && client.user) {
             // Check for VIEW_CHANNEL permission
-            if (!(channel as GuildChannel).permissionsFor(client.user)?.has("ViewChannel")) {
+            if (!(channel as GuildChannel).permissionsFor(client.user).has("ViewChannel")) {
               missingPermissions.push("View Channel");
               hasViewAccess = false;
             }
             
             // Check for READ_MESSAGE_HISTORY permission
-            if (!(channel as GuildChannel).permissionsFor(client.user)?.has("ReadMessageHistory")) {
+            if (!(channel as GuildChannel).permissionsFor(client.user).has("ReadMessageHistory")) {
               missingPermissions.push("Read Message History");
               hasHistoryAccess = false;
             }
