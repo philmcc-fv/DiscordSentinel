@@ -71,6 +71,22 @@ export interface SentimentDistribution {
   total: number;
 }
 
+export interface CombinedMessage {
+  id: string;
+  platform: 'discord' | 'telegram';
+  channelId: string;
+  channelName?: string;
+  userId: string;
+  username: string;
+  content: string;
+  sentiment: SentimentType;
+  sentimentScore: number;
+  createdAt: Date;
+  firstName?: string;
+  lastName?: string;
+  chatTitle?: string;
+}
+
 export interface IStorage {
   // User management
   getUser(id: number): Promise<User | undefined>;
@@ -131,6 +147,14 @@ export interface IStorage {
   // Telegram bot settings
   getTelegramBotSettings(): Promise<TelegramBotSettings | undefined>;
   createOrUpdateTelegramBotSettings(settings: InsertTelegramBotSettings): Promise<TelegramBotSettings>;
+
+  // Combined message management (across platforms)
+  getCombinedMessages(limit?: number, filters?: { 
+    sentiment?: string; 
+    channelId?: string; 
+    search?: string;
+    platform?: 'discord' | 'telegram' | 'all';
+  }): Promise<CombinedMessage[]>;
 
   // Analytics (combined for both platforms)
   getSentimentByDateRange(startDate: Date, endDate: Date): Promise<DailySentimentData[]>;
