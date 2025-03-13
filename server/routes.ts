@@ -319,7 +319,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (allSettings.length > 0) {
         const { token, ...safeSettings } = allSettings[0];
         // Add a tokenSet flag to indicate that a token exists
-        safeSettings.tokenSet = !!token;
+        // Using type assertion to add the dynamic property
+        (safeSettings as any).tokenSet = !!token;
         res.json(safeSettings);
       } else {
         res.json({});
@@ -643,13 +644,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // as permissionsFor is only available on GuildChannels 
           if ('permissionsFor' in channel && client.user) {
             // Check for VIEW_CHANNEL permission
-            if (!(channel as GuildChannel).permissionsFor(client.user).has("ViewChannel")) {
+            if (client.user && !(channel as GuildChannel).permissionsFor(client.user)?.has("ViewChannel")) {
               missingPermissions.push("View Channel");
               hasViewAccess = false;
             }
             
             // Check for READ_MESSAGE_HISTORY permission
-            if (!(channel as GuildChannel).permissionsFor(client.user).has("ReadMessageHistory")) {
+            if (client.user && !(channel as GuildChannel).permissionsFor(client.user)?.has("ReadMessageHistory")) {
               missingPermissions.push("Read Message History");
               hasHistoryAccess = false;
             }

@@ -67,7 +67,9 @@ export default function TelegramSettingsPage() {
   // Update form values when bot settings are loaded
   useEffect(() => {
     if (botSettings) {
-      setToken(botSettings.token || "");
+      // Don't populate token from API response for security reasons
+      // we'll only use the tokenSet flag to know if a token exists
+      setToken(botSettings.tokenSet ? "••••••••••••••••••••••••••" : "");
       setAnalysisFrequency(botSettings.analysisFrequency || "realtime");
       setLoggingEnabled(botSettings.loggingEnabled !== undefined ? botSettings.loggingEnabled : true);
       setNotificationsEnabled(botSettings.notificationsEnabled !== undefined ? botSettings.notificationsEnabled : true);
