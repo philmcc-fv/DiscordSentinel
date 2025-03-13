@@ -453,10 +453,21 @@ export default function TelegramSettingsPage() {
                       Create a bot with @BotFather on Telegram and paste the token here
                     </p>
                     <div className="text-xs text-muted-foreground mt-2 p-2 border rounded-md border-orange-200 bg-orange-50 dark:bg-orange-950 dark:border-orange-900">
-                      <p className="font-semibold text-orange-700 dark:text-orange-300">Token Format Guide</p>
+                      <div className="flex items-center space-x-1">
+                        <Shield className="h-3.5 w-3.5 text-orange-700 dark:text-orange-300" />
+                        <p className="font-semibold text-orange-700 dark:text-orange-300">Token Format Guide</p>
+                      </div>
                       <p className="mt-1">Valid format: <code className="bg-orange-100 dark:bg-orange-900 px-1 py-0.5 rounded">123456789:ABCDefgh-ijKLmnoPQRst_uvwxyz</code></p>
-                      <p className="mt-1">Your token must have numbers, a colon, then letters, numbers, hyphens, and underscores only.</p>
-                      <p className="mt-1">Copy directly from BotFather without adding any extra characters or whitespace.</p>
+                      <p className="mt-1">The token must match this pattern:</p>
+                      <ul className="list-disc list-inside ml-1 mt-1">
+                        <li>Start with <strong>numbers</strong> (bot ID)</li>
+                        <li>Followed by a <strong>colon (:)</strong></li>
+                        <li>End with <strong>letters, numbers, hyphens, and/or underscores</strong> only</li>
+                      </ul>
+                      <div className="mt-2 flex items-start space-x-1">
+                        <AlertCircle className="h-3.5 w-3.5 text-orange-700 dark:text-orange-300 mt-0.5 flex-shrink-0" />
+                        <p>Always copy directly from BotFather without adding any extra characters, spaces or line breaks. Invalid tokens will be automatically rejected.</p>
+                      </div>
                     </div>
                   </div>
                   
