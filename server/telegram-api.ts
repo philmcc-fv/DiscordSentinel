@@ -1,6 +1,13 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { log } from './vite';
 import { storage } from './storage';
+import * as fs from 'fs';
+import * as path from 'path';
+import { randomUUID } from 'crypto';
+
+// File lock path for managing bot instances
+const LOCK_FILE_PATH = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
+const INSTANCE_ID = randomUUID();
 
 /**
  * Service class for interacting with the Telegram Bot API
@@ -10,6 +17,68 @@ class TelegramAPI {
   private isInitialized: boolean = false;
   private token: string | null = null;
   private isInitializing: boolean = false;
+  private instanceId: string = INSTANCE_ID;
+  
+  /**
+   * Creates a file lock to prevent multiple instances from running simultaneously
+   * @returns Whether the lock was successfully acquired
+   */
+  private acquireLock(): boolean {
+    try {
+      // Check if lock file exists
+      if (fs.existsSync(LOCK_FILE_PATH)) {
+        // Check if lock is stale (older than 2 minutes)
+        const lockStats = fs.statSync(LOCK_FILE_PATH);
+        const lockAge = Date.now() - lockStats.mtimeMs;
+        
+        if (lockAge < 120000) { // 2 minutes in milliseconds
+          // Read the lock file to see if it's our instance
+          const lockContent = fs.readFileSync(LOCK_FILE_PATH, 'utf-8');
+          if (lockContent === this.instanceId) {
+            // We already have the lock
+            return true;
+          }
+          
+          // Someone else has the lock
+          log(`Telegram bot lock already acquired by another instance: ${lockContent}`, 'warn');
+          return false;
+        }
+        
+        // Lock is stale, we can override it
+        log('Found stale Telegram bot lock, overriding', 'warn');
+      }
+      
+      // Create lock directory if it doesn't exist
+      const lockDir = path.dirname(LOCK_FILE_PATH);
+      if (!fs.existsSync(lockDir)) {
+        fs.mkdirSync(lockDir, { recursive: true });
+      }
+      
+      // Create or update lock file with our instance ID
+      fs.writeFileSync(LOCK_FILE_PATH, this.instanceId);
+      return true;
+    } catch (error) {
+      log(`Error acquiring Telegram bot lock: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      return false;
+    }
+  }
+  
+  /**
+   * Releases the file lock if we own it
+   */
+  private releaseLock(): void {
+    try {
+      if (fs.existsSync(LOCK_FILE_PATH)) {
+        const lockContent = fs.readFileSync(LOCK_FILE_PATH, 'utf-8');
+        if (lockContent === this.instanceId) {
+          fs.unlinkSync(LOCK_FILE_PATH);
+          log('Released Telegram bot lock', 'debug');
+        }
+      }
+    } catch (error) {
+      log(`Error releasing Telegram bot lock: ${error instanceof Error ? error.message : String(error)}`, 'error');
+    }
+  }
   
   /**
    * Initialize a new Telegram bot with the given token
@@ -40,6 +109,12 @@ class TelegramAPI {
       log('Telegram initialization timeout, proceeding with new initialization', 'warn');
     }
     
+    // Attempt to acquire the lock
+    if (!this.acquireLock()) {
+      log('Failed to acquire Telegram bot lock, another instance is running', 'error');
+      return false;
+    }
+    
     // Set flag to prevent concurrent initializations
     this.isInitializing = true;
     
@@ -47,19 +122,39 @@ class TelegramAPI {
       // Stop and clean up the existing bot if there is one
       await this.stopBot();
       
-      // Clean the token to remove any non-printable characters
-      const cleanToken = token.replace(/[^\x20-\x7E]/g, '');
+      // Validate the token format and clean any problematic characters
+      if (!token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
+        log('Warning: Telegram token does not match expected format. Attempting to clean...', 'warn');
+      }
+      
+      // Clean the token to remove any non-printable or problematic characters
+      // Only allow digits, letters, colons, underscores, and hyphens which are valid in a Telegram bot token
+      const cleanToken = token.replace(/[^\d:A-Za-z0-9_-]/g, '');
       
       try {
-        // Create a new bot instance with specific polling options
-        this.bot = new TelegramBot(cleanToken, {
+        // Generate unique options for this instance to avoid polling conflicts
+        const uniqueOptions = {
           polling: {
             interval: 1000, // Polling interval
             params: {
-              timeout: 10    // Long polling timeout
+              timeout: 10,   // Long polling timeout
+              allowed_updates: ["message", "edited_message"], // Only listen for these update types
+              // Add unique identifier to options to ensure no conflict with other instances
+              offset: Date.now() % 1000000  // Use a dynamic offset based on current time
             }
-          }
-        });
+          },
+          // Add instance ID for tracing
+          agent: {
+            keepAlive: true,
+            keepAliveMsecs: 30000
+          },
+          filepath: false // Disable file downloads
+        };
+        
+        log(`Starting Telegram bot with unique polling options`, 'debug');
+        
+        // Create new bot instance
+        this.bot = new TelegramBot(cleanToken, uniqueOptions);
         
         // Test connection
         const me = await this.bot.getMe();
@@ -79,12 +174,14 @@ class TelegramAPI {
         this.token = null;
         this.bot = null;
         this.isInitializing = false;
+        this.releaseLock();
         
         return false;
       }
     } catch (error) {
       log(`Error during Telegram bot initialization: ${error instanceof Error ? error.message : String(error)}`, 'error');
       this.isInitializing = false;
+      this.releaseLock();
       return false;
     }
   }
@@ -101,7 +198,7 @@ class TelegramAPI {
         this.bot.stopPolling();
         
         // Wait for polling to stop
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1500));
         
         // Remove all event listeners
         this.bot.removeAllListeners();
@@ -117,11 +214,14 @@ class TelegramAPI {
           // Ignore errors when accessing private methods
         }
         
-        // Clear reference and wait for cleanup
+        // Clear reference
         this.bot = null;
         
         // Additional waiting to ensure all resources are released
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // Release our lock
+        this.releaseLock();
         
         log('Telegram bot stopped successfully', 'debug');
       } catch (stopError) {

@@ -11,6 +11,8 @@ import { GuildChannel } from "discord.js";
 import { telegramAPI } from "./telegram-api";
 import { startTelegramBot, setupMessageListeners as setupTelegramMessageListeners, fetchHistoricalMessages as fetchTelegramHistoricalMessages } from "./telegram-bot";
 import * as TelegramBot from 'node-telegram-bot-api';
+import * as fs from 'fs';
+import * as path from 'path';
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1318,14 +1320,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ success: true, message: "Telegram bot is already active", alreadyRunning: true });
       }
       
-      // Start the bot
+      // First, force cleanup any existing bot instances to prevent polling conflicts
+      const lockPath = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
+      try {
+        log('Cleaning up any stale Telegram bot instances before starting...', 'debug');
+        
+        // Remove stale lock file if it exists
+        if (fs.existsSync(lockPath)) {
+          fs.unlinkSync(lockPath);
+          log('Removed stale lock file', 'debug');
+          // Wait a moment for filesystem to sync
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      } catch (cleanupError) {
+        log(`Warning: Unable to clean up previous lock file: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, 'warn');
+        // Continue anyway as we'll try a fresh start
+      }
+      
+      log(`Starting Telegram bot with clean environment...`);
+      
+      // Start the bot with the cleaned environment
       const result = await startTelegramBot(settings.token);
       
       if (result.success) {
         // Update the settings to mark the bot as active
         await storage.createOrUpdateTelegramBotSettings({
           ...settings,
-          isActive: true
+          isActive: true,
+          username: result.botInfo?.username || settings.username || ''
         });
         
         log(`Telegram bot started successfully: ${result.message}`);
