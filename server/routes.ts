@@ -1042,7 +1042,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // API endpoint for getting Telegram chats
+  // API endpoint for getting Telegram chats (from database)
   app.get("/api/telegram-chats", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
@@ -1050,6 +1050,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const chats = await storage.getTelegramChats();
       res.json(chats);
     } catch (error) {
+      res.status(500).json({ error: "Failed to fetch Telegram chats" });
+    }
+  });
+  
+  // API endpoint for getting Telegram chats (combined from database and live API)
+  app.get("/api/telegram-chats/live", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // First, get stored chats from the database
+      const storedChats = await storage.getTelegramChats();
+      
+      // Get current settings to check if bot is active and we can fetch live data
+      const settings = await storage.getTelegramBotSettings();
+      let liveChats: TelegramBot.Chat[] = [];
+      
+      if (settings?.isActive && settings?.token) {
+        // Get live chat information if the bot is active
+        try {
+          // First make sure the bot is initialized
+          if (!telegramAPI.isReady()) {
+            await telegramAPI.initialize(settings.token);
+          }
+          
+          // Then get the current chats
+          liveChats = await telegramAPI.getChats();
+          log(`Retrieved ${liveChats.length} live Telegram chats`, 'debug');
+        } catch (botError) {
+          log(`Error getting live Telegram chats: ${botError instanceof Error ? botError.message : String(botError)}`, 'error');
+        }
+      }
+      
+      // Process each stored chat to ensure it's in the database
+      for (const liveChat of liveChats) {
+        const chatId = String(liveChat.id);
+        const existingChat = storedChats.find(c => c.chatId === chatId);
+        
+        if (!existingChat) {
+          // Add new chat to database
+          try {
+            await storage.createTelegramChat({
+              chatId,
+              type: liveChat.type,
+              title: liveChat.title || '',
+              username: liveChat.username || '',
+            });
+            
+            // Add the newly created chat to our stored chats list
+            storedChats.push({
+              id: 0, // This will be auto-assigned by the database
+              chatId,
+              type: liveChat.type,
+              title: liveChat.title || '',
+              username: liveChat.username || '',
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            
+            log(`Added new Telegram chat to database: ${liveChat.title || liveChat.username || chatId}`, 'info');
+          } catch (createError) {
+            log(`Error creating Telegram chat in database: ${createError instanceof Error ? createError.message : String(createError)}`, 'error');
+          }
+        }
+      }
+      
+      // Return the updated list of stored chats
+      const refreshedChats = await storage.getTelegramChats();
+      res.json(refreshedChats);
+    } catch (error) {
+      log(`Error getting combined Telegram chats: ${error instanceof Error ? error.message : String(error)}`, 'error');
       res.status(500).json({ error: "Failed to fetch Telegram chats" });
     }
   });

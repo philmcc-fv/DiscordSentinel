@@ -1,5 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import { log } from './vite';
+import { storage } from './storage';
 
 /**
  * Service class for interacting with the Telegram Bot API
@@ -108,9 +109,28 @@ class TelegramAPI {
 
     try {
       // Unfortunately Telegram Bot API doesn't provide a direct way to fetch all chats
-      // The bot must store this information itself as users add it to chats
-      // This will be handled in the message listener
-      return [];
+      // We'll get any chats we have in our database via the storage method
+      const storedChats = await storage.getTelegramChats();
+      
+      // For each stored chat, try to get the current information
+      const chatDetails: TelegramBot.Chat[] = [];
+      
+      for (const chat of storedChats) {
+        try {
+          // Only try to get chat details if we have a valid chat ID
+          if (chat.chatId) {
+            const chatDetail = await this.bot.getChat(chat.chatId);
+            if (chatDetail) {
+              chatDetails.push(chatDetail);
+            }
+          }
+        } catch (chatError) {
+          // If we can't get the chat info (e.g., the bot was removed), just skip it
+          log(`Could not get chat details for ${chat.chatId}: ${chatError instanceof Error ? chatError.message : String(chatError)}`, 'debug');
+        }
+      }
+      
+      return chatDetails;
     } catch (error) {
       log(`Error getting chats: ${error instanceof Error ? error.message : String(error)}`, 'error');
       return [];
