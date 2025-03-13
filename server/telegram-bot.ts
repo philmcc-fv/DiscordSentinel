@@ -110,7 +110,8 @@ export function setupMessageListeners(bot: TelegramBot): void {
   bot.on('new_chat_members', async (msg) => {
     try {
       // Check if our bot is among the new members
-      const ourBot = msg.new_chat_members?.find(member => member.username === bot.botInfo?.username);
+      const botUser = (bot as any).botInfo;
+      const ourBot = msg.new_chat_members?.find(member => member.username === botUser?.username);
       
       if (ourBot) {
         log(`Bot was added to chat: ${msg.chat.title || msg.chat.username || msg.chat.id}`, 'info');
@@ -142,7 +143,8 @@ export function setupMessageListeners(bot: TelegramBot): void {
   bot.on('left_chat_member', async (msg) => {
     try {
       // Check if our bot is the one being removed
-      if (msg.left_chat_member?.username === bot.botInfo?.username) {
+      const botUser = (bot as any).botInfo;
+      if (msg.left_chat_member?.username === botUser?.username) {
         log(`Bot was removed from chat: ${msg.chat.title || msg.chat.username || msg.chat.id}`, 'info');
         
         // Remove chat from monitoring if it was being monitored

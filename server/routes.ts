@@ -1016,6 +1016,340 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== TELEGRAM API ROUTES =====
+  
+  // API Routes for Telegram messages
+  app.get("/api/telegram-messages", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const sentiment = req.query.sentiment as string || 'all';
+      const search = req.query.search as string || '';
+      const chatId = req.query.chatId as string || 'all';
+      
+      // Pass filters directly to the storage method
+      const messages = await storage.getRecentTelegramMessages(limit, {
+        sentiment,
+        chatId,
+        search
+      });
+      
+      res.json(messages);
+    } catch (error) {
+      console.error('Error fetching Telegram messages:', error);
+      res.status(500).json({ error: "Failed to fetch Telegram messages" });
+    }
+  });
+
+  // API endpoint for getting Telegram chats
+  app.get("/api/telegram-chats", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const chats = await storage.getTelegramChats();
+      res.json(chats);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch Telegram chats" });
+    }
+  });
+
+  // API endpoint for getting monitored Telegram chats
+  app.get("/api/monitored-telegram-chats", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const monitoredChatIds = await storage.getMonitoredTelegramChats();
+      
+      // Get all chats and add isMonitored property
+      const chats = await storage.getTelegramChats();
+      const enhancedChats = chats.map(chat => ({
+        ...chat,
+        isMonitored: monitoredChatIds.includes(chat.chatId)
+      }));
+      
+      res.json(enhancedChats);
+    } catch (error) {
+      console.error("Error fetching monitored Telegram chats:", error);
+      res.status(500).json({ error: "Failed to fetch monitored Telegram chats" });
+    }
+  });
+
+  // API endpoint for setting a Telegram chat to be monitored
+  app.post("/api/telegram-chats/monitor", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { chatId, monitor } = req.body;
+      
+      if (!chatId || monitor === undefined) {
+        return res.status(400).json({ error: "Missing required data" });
+      }
+      
+      // Check if the chat was previously monitored
+      const wasMonitored = await storage.isTelegramChatMonitored(chatId);
+      
+      // Update the monitoring status
+      await storage.setTelegramChatMonitored(chatId, monitor);
+      
+      res.json({ success: true });
+    } catch (error) {
+      log(`❌ Error updating Telegram chat monitoring: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ error: "Failed to update Telegram chat monitoring" });
+    }
+  });
+
+  // Telegram bot settings
+  app.get("/api/telegram-bot/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const settings = await storage.getTelegramBotSettings();
+      res.json(settings || {});
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch Telegram bot settings" });
+    }
+  });
+
+  // Update Telegram bot settings
+  app.post("/api/telegram-bot/settings", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get previous settings
+      const previousSettings = await storage.getTelegramBotSettings();
+      const previousToken = previousSettings?.token || '';
+      
+      // Update settings
+      const settings = await storage.createOrUpdateTelegramBotSettings(req.body);
+      
+      // Default status
+      let botStatus = {
+        success: false,
+        message: "No changes to Telegram bot settings"
+      };
+      
+      // Check if token changed and bot is active
+      if (settings.isActive && settings.token !== previousToken) {
+        log(`Telegram bot settings changed: Token updated. Restarting bot with new token.`);
+        
+        // Restart the bot with new settings
+        if (!settings.token) {
+          log('Missing token in Telegram bot settings', 'error');
+          res.status(400).json({ error: "Missing token in Telegram bot settings" });
+          return;
+        }
+        
+        try {
+          // Start the Telegram bot with the new token
+          const result = await startTelegramBot(settings.token);
+          
+          // Update status with the result
+          botStatus = {
+            success: result.success,
+            message: result.message || "Unknown status"
+          };
+          
+          if (result.success) {
+            log('Telegram bot restarted with new settings and listening for messages');
+          } else {
+            log(`Failed to restart Telegram bot with new settings: ${result.message}`, 'error');
+          }
+        } catch (botError) {
+          log(`Error connecting to Telegram: ${botError instanceof Error ? botError.message : String(botError)}`, 'error');
+          botStatus = {
+            success: false,
+            message: `Failed to connect to Telegram: ${botError instanceof Error ? botError.message : String(botError)}`
+          };
+        }
+      }
+      
+      // Return the settings with additional status information
+      res.json({
+        ...settings,
+        status: botStatus
+      });
+    } catch (error) {
+      console.error(`Error updating Telegram bot settings: ${error instanceof Error ? error.message : String(error)}`);
+      res.status(500).json({ error: "Failed to update Telegram bot settings" });
+    }
+  });
+
+  // Test Telegram connection
+  app.post("/api/telegram-bot/check-connection", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { token } = req.body;
+      
+      if (!token) {
+        return res.status(400).json({ error: "Token is required" });
+      }
+      
+      // Test the connection with the provided token
+      const result = await telegramAPI.testConnection(token);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error testing Telegram connection:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: `Failed to test Telegram connection: ${error instanceof Error ? error.message : String(error)}` 
+      });
+    }
+  });
+
+  // Start Telegram bot
+  app.post("/api/telegram-bot/start", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the bot settings
+      const settings = await storage.getTelegramBotSettings();
+      
+      if (!settings || !settings.token) {
+        return res.status(400).json({ error: "Telegram bot token is not configured" });
+      }
+      
+      if (settings.isActive) {
+        return res.json({ success: true, message: "Telegram bot is already active", alreadyRunning: true });
+      }
+      
+      // Start the bot
+      const result = await startTelegramBot(settings.token);
+      
+      if (result.success) {
+        // Update the settings to mark the bot as active
+        await storage.createOrUpdateTelegramBotSettings({
+          ...settings,
+          isActive: true
+        });
+        
+        log(`Telegram bot started successfully: ${result.message}`);
+        
+        return res.json({
+          success: true,
+          message: result.message,
+          botInfo: result.botInfo
+        });
+      } else {
+        return res.json({
+          success: false,
+          message: result.message
+        });
+      }
+    } catch (error) {
+      console.error("Error starting Telegram bot:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: `Failed to start Telegram bot: ${error instanceof Error ? error.message : String(error)}` 
+      });
+    }
+  });
+
+  // Stop Telegram bot
+  app.post("/api/telegram-bot/stop", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the bot settings
+      const settings = await storage.getTelegramBotSettings();
+      
+      if (!settings) {
+        return res.status(400).json({ error: "Telegram bot settings not found" });
+      }
+      
+      if (!settings.isActive) {
+        return res.json({ success: true, message: "Telegram bot is already inactive", alreadyStopped: true });
+      }
+      
+      // The API doesn't have a direct stop method, but we can mark it as inactive
+      // to prevent further processing of messages
+      await storage.createOrUpdateTelegramBotSettings({
+        ...settings,
+        isActive: false
+      });
+      
+      log(`Telegram bot marked as inactive`);
+      
+      return res.json({
+        success: true,
+        message: "Telegram bot has been stopped"
+      });
+    } catch (error) {
+      console.error("Error stopping Telegram bot:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: `Failed to stop Telegram bot: ${error instanceof Error ? error.message : String(error)}` 
+      });
+    }
+  });
+
+  // Excluded users for Telegram
+  app.get("/api/excluded-telegram-users", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const users = await storage.getExcludedTelegramUsers();
+      res.json(users);
+    } catch (error) {
+      console.error("Error fetching excluded Telegram users:", error);
+      res.status(500).json({ error: "Failed to fetch excluded Telegram users" });
+    }
+  });
+
+  // Add excluded Telegram user
+  app.post("/api/excluded-telegram-users", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { userId, username } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ error: "User ID is required" });
+      }
+      
+      // Check if user is already excluded
+      const isExcluded = await storage.isTelegramUserExcluded(userId);
+      
+      if (isExcluded) {
+        return res.status(400).json({ error: "User is already excluded" });
+      }
+      
+      // Add user to excluded list
+      const excludedUser = await storage.excludeTelegramUser({
+        userId,
+        username: username || ''
+      });
+      
+      res.json(excludedUser);
+    } catch (error) {
+      console.error("Error excluding Telegram user:", error);
+      res.status(500).json({ error: "Failed to exclude Telegram user" });
+    }
+  });
+
+  // Remove excluded Telegram user
+  app.delete("/api/excluded-telegram-users/:userId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { userId } = req.params;
+      
+      if (!userId) {
+        return res.status(400).json({ error: "User ID is required" });
+      }
+      
+      // Remove user from excluded list
+      await storage.removeExcludedTelegramUser(userId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing excluded Telegram user:", error);
+      res.status(500).json({ error: "Failed to remove excluded Telegram user" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
