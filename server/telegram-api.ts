@@ -27,12 +27,26 @@ class TelegramAPI {
     if (this.bot) {
       try {
         log('Stopping existing Telegram bot before re-initializing', 'debug');
+        // First disable polling
         this.bot.stopPolling();
+        
+        // Wait a bit to ensure polling is stopped
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Clear all event listeners to prevent memory leaks
+        this.bot.removeAllListeners();
         this.bot = null;
+        
+        // Wait a bit more to ensure cleanup
+        await new Promise(resolve => setTimeout(resolve, 500));
       } catch (error) {
         log(`Error stopping existing Telegram bot: ${error instanceof Error ? error.message : String(error)}`, 'error');
       }
     }
+    
+    // Ensure there's no lingering bot instance
+    this.isInitialized = false;
+    this.token = null;
 
     try {
       // Clean the token from any invisible/control characters

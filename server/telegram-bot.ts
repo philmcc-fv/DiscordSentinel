@@ -200,8 +200,8 @@ export async function startTelegramBot(token: string): Promise<{success: boolean
       };
     }
     
-    // Clean the token (remove spaces, new lines, etc.)
-    const cleanToken = token.trim();
+    // Clean the token (remove spaces, new lines, invisible/control characters)
+    const cleanToken = token.trim().replace(/[^\x20-\x7E]/g, '');
     
     log(`Starting Telegram bot`);
     
