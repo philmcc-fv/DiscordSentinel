@@ -1225,25 +1225,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Validate token if provided
       if (req.body.token) {
-        // Check for unescaped characters in the token
-        if (!req.body.token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
-          log('Warning: Telegram token in request does not match expected format. Cleaning...', 'warn');
-          
-          // Clean the token to only allow valid characters for a Telegram bot token
-          const cleanToken = req.body.token.replace(/[^\d:A-Za-z0-9_-]/g, '');
-          
-          if (cleanToken !== req.body.token) {
-            log('Token was cleaned to remove invalid characters', 'debug');
-            // Replace the token with the cleaned version
-            req.body.token = cleanToken;
-          }
-          
-          // If the token is now invalid after cleaning, return an error
-          if (!cleanToken || cleanToken.length < 10) {
-            return res.status(400).json({ 
-              error: "Invalid token format. Token should start with digits followed by a colon and alphanumeric characters. Please check for any special or control characters in your token."
-            });
-          }
+        // Use the centralized token validation utility
+        const validation = validateTelegramToken(req.body.token);
+        
+        if (!validation.isValid) {
+          return res.status(400).json({ 
+            success: false,
+            message: `Invalid token format. ${validation.message}`
+          });
+        }
+        
+        // If the token was cleaned, use the cleaned version
+        if (validation.cleanedToken && validation.cleanedToken !== req.body.token) {
+          log(`Token was cleaned: ${validation.message}`, 'debug');
+          req.body.token = validation.cleanedToken;
         }
       }
       
@@ -1271,15 +1266,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // First, make sure any existing bot instances are stopped
           if (telegramAPI.isReady()) {
             log('Forcing cleanup of existing Telegram bot before starting new one', 'debug');
-            // Force a cleanup by initializing with the new token
-            await telegramAPI.initialize(settings.token, true);
+            
+            // Validate the token to ensure clean format
+            const validation = validateTelegramToken(settings.token);
+            const cleanToken = validation.isValid 
+              ? (validation.cleanedToken || settings.token)
+              : settings.token;
+              
+            // Force a cleanup by initializing with the cleaned token
+            await telegramAPI.initialize(cleanToken, true);
             
             // Wait a moment to ensure cleanup is complete
             await new Promise(resolve => setTimeout(resolve, 1000));
           }
           
-          // Start the Telegram bot with the new token
-          const result = await startTelegramBot(settings.token);
+          // Start the Telegram bot with the validated token
+          // We've already validated the token in the settings earlier
+          const validationStart = validateTelegramToken(settings.token);
+          const startToken = validationStart.cleanedToken || settings.token;
+          const result = await startTelegramBot(startToken);
           
           // Update status with the result
           botStatus = {
@@ -1335,6 +1340,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Use the cleaned token for all operations
       const cleanToken = validation.cleanedToken || token;
       
+      // Log validation result if token was cleaned
+      if (validation.message) {
+        log(`Token validation: ${validation.message}`, 'debug');
+      }
+      
       // Clean up any existing bot instances first
       try {
         const lockPath = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
@@ -1349,8 +1359,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         log(`Warning during test preparation: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, 'debug');
       }
       
-      // Test the connection with the provided token
-      const result = await telegramAPI.testConnection(token);
+      // Test the connection with the cleaned token
+      const result = await telegramAPI.testConnection(cleanToken);
       
       res.json(result);
     } catch (error) {
@@ -1371,8 +1381,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = await storage.getTelegramBotSettings();
       
       if (!settings || !settings.token) {
-        return res.status(400).json({ error: "Telegram bot token is not configured" });
+        return res.status(400).json({ 
+          success: false, 
+          message: "Telegram bot token is not configured" 
+        });
       }
+      
+      // Validate the token before starting the bot
+      const validation = validateTelegramToken(settings.token);
+      if (!validation.isValid) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid token format. ${validation.message}`
+        });
+      }
+      
+      // Use the cleaned token
+      const cleanToken = validation.cleanedToken || settings.token;
       
       if (settings.isActive) {
         return res.json({ success: true, message: "Telegram bot is already active", alreadyRunning: true });
@@ -1397,8 +1422,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       log(`Starting Telegram bot with clean environment...`);
       
-      // Start the bot with the cleaned environment
-      const result = await startTelegramBot(settings.token);
+      // Start the bot with the validated and cleaned token
+      const result = await startTelegramBot(cleanToken);
       
       if (result.success) {
         // Update the settings to mark the bot as active
@@ -1449,9 +1474,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Explicitly clean up Telegram bot resources if it's initialized
       if (telegramAPI.isReady()) {
         log('Stopping active Telegram bot instance');
+        
+        // Validate the token before using it
+        const validation = validateTelegramToken(settings.token);
+        const cleanToken = validation.isValid 
+          ? (validation.cleanedToken || settings.token)
+          : settings.token; // Even if invalid, try to stop with original token
+        
         // Create a new temporary instance to force cleanup
-        const tmpToken = settings.token;
-        await telegramAPI.initialize(tmpToken, true);
+        await telegramAPI.initialize(cleanToken, true);
       }
       
       // Mark the bot as inactive in database
