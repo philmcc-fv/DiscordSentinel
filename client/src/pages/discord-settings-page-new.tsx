@@ -76,7 +76,9 @@ export default function DiscordSettingsPage() {
   // Update form values when bot settings are loaded
   useEffect(() => {
     if (botSettings) {
-      setToken(botSettings.token || "");
+      // Don't populate token from API response for security reasons
+      // we'll only use the tokenSet flag to know if a token exists
+      setToken(botSettings.tokenSet ? "••••••••••••••••••••••••••" : "");
       setGuildId(botSettings.guildId || "");
       setPrefix(botSettings.prefix || "!");
       setAnalysisFrequency(botSettings.analysisFrequency || "realtime");
