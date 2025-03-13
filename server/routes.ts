@@ -13,6 +13,7 @@ import { startTelegramBot, setupMessageListeners as setupTelegramMessageListener
 import * as TelegramBot from 'node-telegram-bot-api';
 import * as fs from 'fs';
 import * as path from 'path';
+import { validateTelegramToken, validateDiscordToken } from './utils/token-validation';
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1319,22 +1320,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
     try {
-      let { token } = req.body;
+      const { token } = req.body;
       
-      if (!token) {
-        return res.status(400).json({ success: false, message: "Token is required" });
-      }
+      // Use the validation utility to check the token
+      const validation = validateTelegramToken(token);
       
-      // Basic format validation before sending to API
-      if (!token.includes(':')) {
+      if (!validation.isValid) {
         return res.status(400).json({
           success: false,
-          message: "Invalid token format. Token must contain a colon separating the bot ID and secret."
+          message: validation.message
         });
       }
       
-      // Remove whitespace and non-printable characters that could cause issues
-      token = token.trim().replace(/[\u0000-\u001F\u007F-\u009F\s]/g, '');
+      // Use the cleaned token for all operations
+      const cleanToken = validation.cleanedToken || token;
       
       // Clean up any existing bot instances first
       try {
