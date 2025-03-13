@@ -863,6 +863,85 @@ export class DatabaseStorage implements IStorage {
     return settings;
   }
 
+  // Combined message management (across platforms)
+  async getCombinedMessages(
+    limit: number = 20, 
+    filters?: { 
+      sentiment?: string; 
+      channelId?: string; 
+      search?: string;
+      platform?: 'discord' | 'telegram' | 'all';
+    }
+  ): Promise<CombinedMessage[]> {
+    // Default platform to 'all' if not specified
+    const platform = filters?.platform || 'all';
+    
+    let combinedMessages: CombinedMessage[] = [];
+    
+    // Get Discord messages if platform is 'all' or 'discord'
+    if (platform === 'all' || platform === 'discord') {
+      const discordMessages = await this.getRecentMessages(
+        platform === 'all' ? Math.floor(limit / 2) : limit, 
+        {
+          sentiment: filters?.sentiment,
+          channelId: filters?.channelId,
+          search: filters?.search
+        }
+      );
+      
+      // Map Discord messages to the combined format
+      combinedMessages = combinedMessages.concat(
+        discordMessages.map(msg => ({
+          id: `discord-${msg.messageId}`,
+          platform: 'discord',
+          channelId: msg.channelId,
+          userId: msg.userId,
+          username: msg.username,
+          content: msg.content,
+          sentiment: msg.sentiment,
+          sentimentScore: msg.sentimentScore,
+          createdAt: msg.createdAt
+        }))
+      );
+    }
+    
+    // Get Telegram messages if platform is 'all' or 'telegram'
+    if (platform === 'all' || platform === 'telegram') {
+      const telegramMessages = await this.getRecentTelegramMessages(
+        platform === 'all' ? Math.floor(limit / 2) : limit, 
+        {
+          sentiment: filters?.sentiment,
+          chatId: filters?.channelId,
+          search: filters?.search
+        }
+      );
+      
+      // Map Telegram messages to the combined format
+      combinedMessages = combinedMessages.concat(
+        telegramMessages.map(msg => ({
+          id: `telegram-${msg.messageId}`,
+          platform: 'telegram',
+          channelId: msg.chatId,
+          userId: msg.userId || '',
+          username: msg.username || msg.firstName || 'Unknown User',
+          content: msg.content,
+          sentiment: msg.sentiment,
+          sentimentScore: msg.sentimentScore,
+          createdAt: msg.createdAt,
+          firstName: msg.firstName,
+          lastName: msg.lastName,
+          chatTitle: msg.chatTitle
+        }))
+      );
+    }
+    
+    // Sort combined messages by creation date (newest first)
+    combinedMessages.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    
+    // Apply limit to final combined result
+    return combinedMessages.slice(0, limit);
+  }
+
   async createOrUpdateTelegramBotSettings(settings: InsertTelegramBotSettings): Promise<TelegramBotSettings> {
     // Check if any settings already exist
     const existing = await this.getTelegramBotSettings();

@@ -17,7 +17,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication
   setupAuth(app);
 
-  // API Routes for Discord messages and sentiment analysis
+  // API Routes for combined messages and sentiment analysis
   app.get("/api/recent-messages", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
@@ -26,12 +26,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sentiment = req.query.sentiment as string || 'all';
       const search = req.query.search as string || '';
       const channelId = req.query.channelId as string || 'all';
+      const platform = req.query.platform as 'discord' | 'telegram' | 'all' || 'all';
       
-      // Pass filters directly to the storage method
-      const messages = await storage.getRecentMessages(limit, {
+      // Pass filters to the combined messages method
+      const messages = await storage.getCombinedMessages(limit, {
         sentiment,
         channelId,
-        search
+        search,
+        platform
       });
       
       res.json(messages);
