@@ -5,6 +5,11 @@ import {
   botSettings, 
   monitoredChannels,
   excludedUsers,
+  telegramChats,
+  telegramMessages,
+  telegramBotSettings,
+  monitoredTelegramChats,
+  excludedTelegramUsers,
   type User, 
   type InsertUser, 
   type DiscordChannel, 
@@ -17,6 +22,16 @@ import {
   type InsertMonitoredChannel,
   type ExcludedUser,
   type InsertExcludedUser,
+  type TelegramChat,
+  type InsertTelegramChat,
+  type TelegramMessage,
+  type InsertTelegramMessage,
+  type TelegramBotSettings,
+  type InsertTelegramBotSettings,
+  type MonitoredTelegramChat,
+  type InsertMonitoredTelegramChat,
+  type ExcludedTelegramUser,
+  type InsertExcludedTelegramUser,
   type SentimentType
 } from "@shared/schema";
 import { db } from "./db";
