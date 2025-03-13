@@ -890,10 +890,10 @@ export class DatabaseStorage implements IStorage {
       );
       
       // Map Discord messages to the combined format
-      combinedMessages = combinedMessages.concat(
-        discordMessages.map(msg => ({
+      const discordCombined = discordMessages.map(msg => {
+        return {
           id: `discord-${msg.messageId}`,
-          platform: 'discord',
+          platform: 'discord' as const,
           channelId: msg.channelId,
           userId: msg.userId,
           username: msg.username,
@@ -901,8 +901,10 @@ export class DatabaseStorage implements IStorage {
           sentiment: msg.sentiment,
           sentimentScore: msg.sentimentScore,
           createdAt: msg.createdAt
-        }))
-      );
+        } as CombinedMessage;
+      });
+      
+      combinedMessages = [...combinedMessages, ...discordCombined];
     }
     
     // Get Telegram messages if platform is 'all' or 'telegram'
@@ -917,22 +919,25 @@ export class DatabaseStorage implements IStorage {
       );
       
       // Map Telegram messages to the combined format
-      combinedMessages = combinedMessages.concat(
-        telegramMessages.map(msg => ({
+      const telegramCombined = telegramMessages.map(msg => {
+        return {
           id: `telegram-${msg.messageId}`,
-          platform: 'telegram',
+          platform: 'telegram' as const,
           channelId: msg.chatId,
           userId: msg.userId || '',
-          username: msg.username || msg.firstName || 'Unknown User',
+          username: msg.username || (msg.firstName ? msg.firstName : 'Unknown User'),
           content: msg.content,
           sentiment: msg.sentiment,
           sentimentScore: msg.sentimentScore,
           createdAt: msg.createdAt,
-          firstName: msg.firstName,
-          lastName: msg.lastName,
-          chatTitle: msg.chatTitle
-        }))
-      );
+          firstName: msg.firstName || undefined,
+          lastName: msg.lastName || undefined,
+          // Add chat title if available from joined data
+          chatTitle: msg.chatTitle || undefined
+        } as CombinedMessage;
+      });
+      
+      combinedMessages = [...combinedMessages, ...telegramCombined];
     }
     
     // Sort combined messages by creation date (newest first)

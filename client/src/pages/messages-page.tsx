@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, Filter, MessageSquare } from "lucide-react";
+import { Search, Filter, MessageSquare, MessageCircle } from "lucide-react";
 import { SentimentType } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { 
@@ -25,12 +25,14 @@ import {
   getInitials, 
   formatDateTime 
 } from "@/lib/utils";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FaDiscord, FaTelegram } from "react-icons/fa";
 
 export default function MessagesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedSentiment, setSelectedSentiment] = useState<SentimentType | "all">("all");
-  
   const [selectedChannelId, setSelectedChannelId] = useState<string>("all");
+  const [selectedPlatform, setSelectedPlatform] = useState<"all" | "discord" | "telegram">("all");
   const [isFiltering, setIsFiltering] = useState(false);
   
   const { data: channels = [] } = useQuery<any[]>({
@@ -42,7 +44,8 @@ export default function MessagesPage() {
       limit: 50,
       sentiment: selectedSentiment,
       search: searchQuery,
-      channelId: selectedChannelId
+      channelId: selectedChannelId,
+      platform: selectedPlatform
     }],
     refetchInterval: 10000, // Refresh every 10 seconds
     enabled: true, // Always enabled, will update when queryKey changes
@@ -57,6 +60,12 @@ export default function MessagesPage() {
     { value: "very_negative", label: "Very Negative" },
   ];
   
+  const platformOptions = [
+    { value: "all", label: "All Platforms", icon: null },
+    { value: "discord", label: "Discord", icon: <FaDiscord className="mr-2 h-4 w-4 text-[#5865F2]" /> },
+    { value: "telegram", label: "Telegram", icon: <FaTelegram className="mr-2 h-4 w-4 text-[#0088cc]" /> }
+  ];
+  
   const applyFilters = () => {
     setIsFiltering(true);
     // This will trigger a refetch with the latest filter values in the queryKey
@@ -64,10 +73,22 @@ export default function MessagesPage() {
       console.log("Filters applied:", { 
         sentiment: selectedSentiment, 
         channelId: selectedChannelId, 
-        search: searchQuery 
+        search: searchQuery,
+        platform: selectedPlatform
       });
       setIsFiltering(false);
     });
+  };
+
+  const getPlatformIcon = (platform: string) => {
+    switch (platform) {
+      case 'discord':
+        return <FaDiscord className="h-4 w-4 text-[#5865F2]" />;
+      case 'telegram': 
+        return <FaTelegram className="h-4 w-4 text-[#0088cc]" />;
+      default:
+        return <MessageCircle className="h-4 w-4" />;
+    }
   };
 
   return (
@@ -80,13 +101,36 @@ export default function MessagesPage() {
         <div className="bg-white shadow-sm z-10 flex-shrink-0 hidden md:flex items-center justify-between px-6 py-4">
           <div>
             <h1 className="text-2xl font-semibold text-gray-800">Messages</h1>
-            <p className="text-sm text-gray-600">Browse and analyze all Discord messages</p>
+            <p className="text-sm text-gray-600">Browse and analyze messages from Discord and Telegram</p>
           </div>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-auto pb-10">
           <div className="container mx-auto px-4 py-6 space-y-6">
+            {/* Platform selection tabs */}
+            <Tabs 
+              defaultValue="all" 
+              className="w-full"
+              onValueChange={(value) => {
+                setSelectedPlatform(value as "all" | "discord" | "telegram");
+              }}
+            >
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="all" className="flex items-center gap-2">
+                  <span>All Platforms</span>
+                </TabsTrigger>
+                <TabsTrigger value="discord" className="flex items-center gap-2">
+                  <FaDiscord className="h-4 w-4" />
+                  <span>Discord</span>
+                </TabsTrigger>
+                <TabsTrigger value="telegram" className="flex items-center gap-2">
+                  <FaTelegram className="h-4 w-4" />
+                  <span>Telegram</span>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            
             {/* Filters */}
             <Card>
               <CardHeader>
@@ -186,14 +230,25 @@ export default function MessagesPage() {
                       >
                         <div className="flex justify-between items-start">
                           <div className="flex items-center">
-                            <div className="bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center mr-2">
+                            <div className="bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center mr-2 relative">
                               <span className="text-xs font-medium text-gray-600">
                                 {getInitials(message.username)}
                               </span>
+                              <div className="absolute -bottom-1 -right-1">
+                                {getPlatformIcon(message.platform)}
+                              </div>
                             </div>
                             <div>
-                              <p className="text-sm font-medium text-gray-800">{message.username}</p>
-                              <p className="text-xs text-gray-500">#{message.channelId}</p>
+                              <p className="text-sm font-medium text-gray-800">
+                                {message.username}
+                                {message.firstName && message.lastName && ` (${message.firstName} ${message.lastName})`}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {message.platform === 'telegram' && message.chatTitle ? 
+                                  message.chatTitle : 
+                                  `#${message.channelId}`
+                                }
+                              </p>
                             </div>
                           </div>
                           <div>
