@@ -1365,19 +1365,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!settings.isActive) {
         return res.json({ success: true, message: "Telegram bot is already inactive", alreadyStopped: true });
       }
+
+      // Explicitly clean up Telegram bot resources if it's initialized
+      if (telegramAPI.isReady()) {
+        log('Stopping active Telegram bot instance');
+        // Create a new temporary instance to force cleanup
+        const tmpToken = settings.token;
+        await telegramAPI.initialize(tmpToken, true);
+      }
       
-      // The API doesn't have a direct stop method, but we can mark it as inactive
-      // to prevent further processing of messages
+      // Mark the bot as inactive in database
       await storage.createOrUpdateTelegramBotSettings({
         ...settings,
         isActive: false
       });
       
-      log(`Telegram bot marked as inactive`);
+      log(`Telegram bot marked as inactive and resources cleaned up`);
       
       return res.json({
         success: true,
-        message: "Telegram bot has been stopped"
+        message: "Telegram bot has been stopped and resources cleaned up"
       });
     } catch (error) {
       console.error("Error stopping Telegram bot:", error);
