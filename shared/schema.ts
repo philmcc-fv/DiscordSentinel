@@ -86,6 +86,8 @@ export const telegramChats = pgTable("telegram_chats", {
   type: text("type").notNull(), // group, supergroup, private, channel
   title: text("title"),
   username: text("username"),
+  isActive: boolean("is_active").default(true).notNull(),
+  lastChecked: timestamp("last_checked").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -190,6 +192,8 @@ export const insertTelegramChatSchema = createInsertSchema(telegramChats).pick({
   type: true,
   title: true,
   username: true,
+  isActive: true,
+  lastChecked: true,
 });
 
 export const insertTelegramMessageSchema = createInsertSchema(telegramMessages).pick({

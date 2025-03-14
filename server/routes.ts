@@ -1190,6 +1190,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               type: liveChat.type,
               title: liveChat.title || '',
               username: liveChat.username || '',
+              isActive: true,
+              lastChecked: new Date()
             };
             
             await storage.createTelegramChat(newChat);
@@ -1311,11 +1313,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const chat = await storage.getTelegramChat(chatId);
         if (chat) {
-          // Update is_active status
-          await storage.updateTelegramChat({
-            chatId,
-            isActive: chatStatus.isActive
-          });
+          // Create a complete update with all required fields
+          const updateData: InsertTelegramChat = {
+            chatId: chat.chatId,
+            type: chat.type,
+            title: chat.title || "",
+            username: chat.username || "",
+            isActive: chatStatus.isActive,
+            lastChecked: new Date()
+          };
+          
+          // Update chat status
+          await storage.updateTelegramChat(updateData);
+          log(`Updated chat ${chatId} status: isActive=${chatStatus.isActive}`);
           
           // If not active, remove from monitored chats
           if (!chatStatus.isActive) {
@@ -1549,7 +1559,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Create a temporary bot for testing without polling
       try {
-        const testBot = new TelegramBot(token, { polling: false });
+        // Encode any special characters in the token
+        const encodedToken = encodeURIComponent(token.trim());
+        const decodedToken = decodeURIComponent(encodedToken);
+        
+        log(`Testing connection with encoded token`, 'debug');
+        const testBot = new TelegramBot(decodedToken, { polling: false });
         
         // Try to get bot info
         const botInfo = await testBot.getMe();
