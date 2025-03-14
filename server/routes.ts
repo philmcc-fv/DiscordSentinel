@@ -1221,6 +1221,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // API endpoint for checking all monitored chat statuses in bulk
+  app.get("/api/telegram-chats/status/check-all", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the bot settings to check if we can perform this operation
+      const settings = await storage.getTelegramBotSettings();
+      
+      if (!settings || !settings.token) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Telegram bot is not configured" 
+        });
+      }
+      
+      // Initialize the Telegram bot if needed
+      if (!telegramAPI.isReady()) {
+        const initialized = await telegramAPI.initialize(settings.token);
+        if (!initialized) {
+          return res.status(500).json({
+            success: false,
+            message: "Failed to initialize Telegram bot"
+          });
+        }
+      }
+      
+      // Update all chat statuses
+      const result = await telegramAPI.updateAllChatStatuses();
+      
+      return res.json({
+        success: true,
+        message: `Successfully checked ${result.total} chat statuses`,
+        data: result
+      });
+    } catch (error) {
+      log(`Error checking all chat statuses: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      return res.status(500).json({ 
+        success: false, 
+        message: `Error checking chat statuses: ${error instanceof Error ? error.message : String(error)}`
+      });
+    }
+  });
+  
   // API endpoint for checking if a specific chat is accessible
   app.get("/api/telegram-chats/:chatId/check-access", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
