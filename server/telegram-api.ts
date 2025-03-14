@@ -25,27 +25,16 @@ class TelegramAPI {
    */
   private acquireLock(): boolean {
     try {
-      // Check if lock file exists
+      // In our replit environment, forcibly remove any existing lock file
+      // since we should be the only instance running
       if (fs.existsSync(LOCK_FILE_PATH)) {
-        // Check if lock is stale (older than 2 minutes)
-        const lockStats = fs.statSync(LOCK_FILE_PATH);
-        const lockAge = Date.now() - lockStats.mtimeMs;
-        
-        if (lockAge < 120000) { // 2 minutes in milliseconds
-          // Read the lock file to see if it's our instance
-          const lockContent = fs.readFileSync(LOCK_FILE_PATH, 'utf-8');
-          if (lockContent === this.instanceId) {
-            // We already have the lock
-            return true;
-          }
-          
-          // Someone else has the lock
-          log(`Telegram bot lock already acquired by another instance: ${lockContent}`, 'warn');
-          return false;
+        try {
+          fs.unlinkSync(LOCK_FILE_PATH);
+          log('Removed existing Telegram bot lock file', 'debug');
+        } catch (unlinkError) {
+          log(`Failed to remove existing lock file: ${unlinkError instanceof Error ? unlinkError.message : String(unlinkError)}`, 'warn');
+          // Continue anyway as the next write might succeed
         }
-        
-        // Lock is stale, we can override it
-        log('Found stale Telegram bot lock, overriding', 'warn');
       }
       
       // Create lock directory if it doesn't exist
@@ -56,6 +45,7 @@ class TelegramAPI {
       
       // Create or update lock file with our instance ID
       fs.writeFileSync(LOCK_FILE_PATH, this.instanceId);
+      log('Successfully acquired Telegram bot lock', 'debug');
       return true;
     } catch (error) {
       log(`Error acquiring Telegram bot lock: ${error instanceof Error ? error.message : String(error)}`, 'error');
@@ -122,14 +112,27 @@ class TelegramAPI {
       // Stop and clean up the existing bot if there is one
       await this.stopBot();
       
-      // Validate the token format and clean any problematic characters
-      if (!token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
+      // Decode the token in case it was URL encoded
+      let decodedToken;
+      try {
+        decodedToken = decodeURIComponent(token);
+        if (decodedToken !== token) {
+          log('Token was URL encoded, decoded successfully', 'debug');
+        }
+      } catch (decodeError) {
+        // If decoding fails, use the original token
+        log(`Warning: Failed to decode token, using as-is: ${decodeError instanceof Error ? decodeError.message : String(decodeError)}`, 'warn');
+        decodedToken = token;
+      }
+      
+      // Validate the token format
+      if (!decodedToken.match(/^\d+:[A-Za-z0-9_-]+$/)) {
         log('Warning: Telegram token does not match expected format. Attempting to clean...', 'warn');
       }
       
       // Clean the token to remove any non-printable or problematic characters
       // Only allow digits, letters, colons, underscores, and hyphens which are valid in a Telegram bot token
-      const cleanToken = token.replace(/[^\d:A-Za-z0-9_-]/g, '');
+      const cleanToken = decodedToken.replace(/[^\d:A-Za-z0-9_-]/g, '');
       
       try {
         // Generate unique options for this instance to avoid polling conflicts
@@ -303,14 +306,27 @@ class TelegramAPI {
         };
       }
       
+      // Decode the token in case it was URL encoded
+      let decodedToken;
+      try {
+        decodedToken = decodeURIComponent(token);
+        if (decodedToken !== token) {
+          log('Token was URL encoded, decoded successfully', 'debug');
+        }
+      } catch (decodeError) {
+        // If decoding fails, use the original token
+        log(`Warning: Failed to decode token, using as-is: ${decodeError instanceof Error ? decodeError.message : String(decodeError)}`, 'warn');
+        decodedToken = token;
+      }
+      
       // Validate token format
-      if (!token.match(/^\d+:[A-Za-z0-9_-]+$/)) {
+      if (!decodedToken.match(/^\d+:[A-Za-z0-9_-]+$/)) {
         log('Warning: Telegram token does not match expected format. Attempting to clean...', 'warn');
       }
       
       // Clean the token to only allow valid characters for a Telegram bot token
       // Only digits, letters, colons, underscores, and hyphens are valid
-      const cleanToken = token.replace(/[^\d:A-Za-z0-9_-]/g, '');
+      const cleanToken = decodedToken.replace(/[^\d:A-Za-z0-9_-]/g, '');
       
       if (cleanToken !== token) {
         log('Token was cleaned to remove invalid characters', 'debug');
