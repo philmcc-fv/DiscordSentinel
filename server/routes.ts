@@ -10,7 +10,7 @@ import { analyzeSentiment } from "./openai";
 import { GuildChannel } from "discord.js";
 import { telegramAPI } from "./telegram-api";
 import { startTelegramBot, setupMessageListeners as setupTelegramMessageListeners, fetchHistoricalMessages as fetchTelegramHistoricalMessages } from "./telegram-bot";
-import * as TelegramBot from 'node-telegram-bot-api';
+import TelegramBot from 'node-telegram-bot-api';
 import * as fs from 'fs';
 import * as path from 'path';
 import { validateTelegramToken, validateDiscordToken } from './utils/token-validation';
@@ -1250,15 +1250,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Initialize the bot if it's not already active
-      if (!telegramAPI.isReady()) {
-        const validation = validateTelegramToken(settings.token);
-        const cleanToken = validation.cleanedToken || settings.token;
-        await telegramAPI.initialize(cleanToken);
-      }
+      // First try using the existing API instance
+      let chatStatus: { isActive: boolean, message?: string };
       
-      // Check if the chat is active
-      const chatStatus = await telegramAPI.isChatActive(chatId);
+      if (telegramAPI.isReady()) {
+        // Use the existing bot if it's ready
+        chatStatus = await telegramAPI.isChatActive(chatId);
+      } else {
+        // If the main bot is not ready (possibly due to lock), create a temporary bot instance for this check
+        try {
+          log(`Creating temporary bot instance to check chat ${chatId} status`);
+          
+          const validation = validateTelegramToken(settings.token);
+          const cleanToken = validation.cleanedToken || settings.token;
+          
+          // Create a temporary bot just for this check
+          const tempBot = new TelegramBot(cleanToken, { polling: false });
+          
+          try {
+            // Try to get chat info with the temporary bot
+            const chatInfo = await tempBot.getChat(chatId);
+            chatStatus = { isActive: Boolean(chatInfo) };
+          } catch (botError) {
+            const errorMessage = botError instanceof Error ? botError.message : String(botError);
+            
+            // Check common error messages that indicate the bot is not in the chat
+            if (
+              errorMessage.includes('chat not found') || 
+              errorMessage.includes('bot was kicked') || 
+              errorMessage.includes('ETELEGRAM: 403') ||
+              errorMessage.includes('bot was blocked') ||
+              errorMessage.includes('chat_id is empty')
+            ) {
+              chatStatus = { 
+                isActive: false, 
+                message: `Bot does not have access to this chat: ${errorMessage}` 
+              };
+            } else {
+              chatStatus = { 
+                isActive: false, 
+                message: `Error checking chat status: ${errorMessage}` 
+              };
+            }
+          } finally {
+            // Clean up the temporary bot
+            tempBot.removeAllListeners();
+          }
+        } catch (tempBotError) {
+          log(`Error creating temporary bot: ${tempBotError instanceof Error ? tempBotError.message : String(tempBotError)}`, 'error');
+          chatStatus = { 
+            isActive: false, 
+            message: 'Could not create temporary bot to check chat status' 
+          };
+        }
+      }
       
       // Remove the chat from database if it's not accessible
       if (!chatStatus.isActive) {
