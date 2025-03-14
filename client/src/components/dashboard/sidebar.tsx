@@ -12,7 +12,8 @@ import {
   Menu,
   X,
   LogOut,
-  MessageSquare
+  MessageSquare,
+  Shield
 } from "lucide-react";
 
 interface SidebarProps {
@@ -66,6 +67,12 @@ const Sidebar: FC<SidebarProps> = ({ className }) => {
       href: "/telegram-settings",
       icon: <MessageSquare className="mr-3 h-5 w-5" />,
       active: location === "/telegram-settings"
+    },
+    {
+      name: "Test Telegram Status",
+      href: "/test-telegram-status",
+      icon: <Shield className="mr-3 h-5 w-5" />,
+      active: location === "/test-telegram-status"
     }
   ];
 
