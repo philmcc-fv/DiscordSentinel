@@ -1198,8 +1198,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             storedChats.push({
               id: 0, // This will be auto-assigned by the database
               ...newChat,
-              createdAt: new Date(),
-              updatedAt: new Date()
+              createdAt: new Date()
             });
             
             log(`Added new Telegram chat to database: ${liveChat.title || liveChat.username || chatId}`, 'info');
@@ -1216,6 +1215,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       log(`Error getting combined Telegram chats: ${error instanceof Error ? error.message : String(error)}`, 'error');
       res.status(500).json({ error: "Failed to fetch Telegram chats" });
+    }
+  });
+
+  // API endpoint for checking if a specific chat is accessible
+  app.get("/api/telegram-chats/:chatId/check-access", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { chatId } = req.params;
+      
+      if (!chatId) {
+        return res.status(400).json({ error: "Chat ID is required" });
+      }
+      
+      // Get the bot settings to check if we can perform this operation
+      const settings = await storage.getTelegramBotSettings();
+      
+      if (!settings || !settings.token) {
+        return res.status(400).json({ 
+          success: false, 
+          isActive: false,
+          message: "Telegram bot token is not configured" 
+        });
+      }
+      
+      const isActive = (settings as any).is_active === true || (settings as any).is_active === 't';
+      
+      if (!isActive) {
+        return res.status(400).json({ 
+          success: false, 
+          isActive: false,
+          message: "Telegram bot is not active" 
+        });
+      }
+      
+      // Initialize the bot if it's not already active
+      if (!telegramAPI.isReady()) {
+        const validation = validateTelegramToken(settings.token);
+        const cleanToken = validation.cleanedToken || settings.token;
+        await telegramAPI.initialize(cleanToken);
+      }
+      
+      // Check if the chat is active
+      const chatStatus = await telegramAPI.isChatActive(chatId);
+      
+      // Remove the chat from database if it's not accessible
+      if (!chatStatus.isActive) {
+        try {
+          // First check if it's monitored and remove from monitoring
+          const isMonitored = await storage.isTelegramChatMonitored(chatId);
+          if (isMonitored) {
+            await storage.setTelegramChatMonitored(chatId, false);
+            log(`Removed inaccessible chat ${chatId} from monitored chats`);
+          }
+          
+          // Then remove from the chats table
+          await sql`DELETE FROM telegram_chats WHERE chat_id = ${chatId}`;
+          log(`Removed inaccessible Telegram chat ${chatId} from database`);
+        } catch (removeError) {
+          log(`Error removing inaccessible chat: ${removeError instanceof Error ? removeError.message : String(removeError)}`, 'error');
+        }
+      }
+      
+      res.json({
+        success: true,
+        isActive: chatStatus.isActive,
+        message: chatStatus.message || (chatStatus.isActive ? "Chat is accessible" : "Chat is not accessible")
+      });
+    } catch (error) {
+      log(`Error checking chat access: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ 
+        success: false, 
+        message: `Failed to check chat access: ${error instanceof Error ? error.message : String(error)}` 
+      });
     }
   });
 

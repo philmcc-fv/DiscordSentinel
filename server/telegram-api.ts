@@ -423,6 +423,58 @@ class TelegramAPI {
       return null;
     }
   }
+  
+  /**
+   * Check if the bot is still a member of a specific chat
+   * @param chatId The chat ID to check
+   * @returns Object with active status and any error message
+   */
+  async isChatActive(chatId: string): Promise<{ isActive: boolean, message?: string }> {
+    if (!this.isReady() || !this.bot) {
+      return { 
+        isActive: false, 
+        message: 'Telegram bot not initialized' 
+      };
+    }
+
+    try {
+      // Try to get chat info
+      const chatInfo = await this.bot.getChat(chatId);
+      
+      // If we get a valid chat info, the bot is still a member
+      if (chatInfo) {
+        return { isActive: true };
+      }
+      
+      return { 
+        isActive: false, 
+        message: 'Chat information unavailable' 
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // Check for specific error messages that indicate the bot is not a member anymore
+      if (
+        errorMessage.includes('chat not found') || 
+        errorMessage.includes('bot was kicked') || 
+        errorMessage.includes('ETELEGRAM: 403') ||
+        errorMessage.includes('bot was blocked') ||
+        errorMessage.includes('chat_id is empty')
+      ) {
+        return { 
+          isActive: false, 
+          message: `Bot does not have access to this chat: ${errorMessage}` 
+        };
+      }
+      
+      // For other errors, log but don't assume the bot is not a member
+      log(`Error checking chat status for ${chatId}: ${errorMessage}`, 'error');
+      return { 
+        isActive: false, 
+        message: `Error checking chat status: ${errorMessage}` 
+      };
+    }
+  }
 }
 
 // Export a singleton instance
