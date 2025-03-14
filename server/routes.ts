@@ -1444,6 +1444,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // API endpoint for manually adding a Telegram chat by ID
+  app.post("/api/telegram-chats/add", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { chatId } = req.body;
+      
+      if (!chatId) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Chat ID is required" 
+        });
+      }
+      
+      // Get current settings to check if bot is active
+      const settings = await storage.getTelegramBotSettings();
+      
+      if (!settings || !settings.token) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Telegram bot token is not configured" 
+        });
+      }
+      
+      // Check if this chat ID already exists
+      const existingChat = await storage.getTelegramChat(chatId);
+      if (existingChat) {
+        return res.status(400).json({
+          success: false,
+          message: "This chat ID already exists in the database"
+        });
+      }
+      
+      // Get details about the chat from Telegram API
+      try {
+        // Try to initialize the bot if not ready
+        if (!telegramAPI.isReady()) {
+          log('Initializing Telegram bot to fetch chat info', 'debug');
+          await telegramAPI.initialize(settings.token);
+        }
+        
+        // Get the chat info
+        const chatInfo = await telegramAPI.getChat(chatId);
+        
+        if (!chatInfo) {
+          return res.status(400).json({ 
+            success: false,
+            message: "Could not find this chat ID. Make sure the bot has been added to the chat." 
+          });
+        }
+        
+        // Add the chat to the database
+        const newChat = {
+          chatId: String(chatInfo.id),
+          type: chatInfo.type,
+          title: chatInfo.title || '',
+          username: chatInfo.username || '',
+          isActive: true,
+          lastChecked: new Date()
+        };
+        
+        await storage.createTelegramChat(newChat);
+        
+        log(`Manually added new Telegram chat: ${chatInfo.title || chatInfo.username || chatId}`, 'info');
+        
+        res.json({ 
+          success: true,
+          message: `Successfully added chat: ${chatInfo.title || chatInfo.username || chatId}`,
+          chat: {
+            ...newChat,
+            id: 0, // This will be assigned by the database
+            createdAt: new Date()
+          }
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log(`Error adding Telegram chat: ${errorMessage}`, 'error');
+        
+        // Check for common error messages that indicate the bot is not in the chat
+        if (
+          errorMessage.includes('chat not found') || 
+          errorMessage.includes('bot was kicked') || 
+          errorMessage.includes('ETELEGRAM: 403') ||
+          errorMessage.includes('bot was blocked') ||
+          errorMessage.includes('chat_id is empty')
+        ) {
+          return res.status(400).json({ 
+            success: false,
+            message: `Bot does not have access to this chat. Please add the bot to the chat first.` 
+          });
+        }
+        
+        res.status(500).json({ 
+          success: false,
+          message: `Error adding chat: ${errorMessage}`
+        });
+      }
+    } catch (error) {
+      log(`Error in manual chat add endpoint: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to add Telegram chat" 
+      });
+    }
+  });
+
   // Telegram bot settings
   app.get("/api/telegram-bot/settings", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);

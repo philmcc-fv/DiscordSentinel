@@ -9,13 +9,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import { 
   Loader2, Save, RotateCw, Play, Square, HelpCircle, AlertCircle, Shield, 
-  RefreshCw, ChevronDown, ChevronUp, CheckCircle, XCircle, WifiOff, Trash
+  RefreshCw, ChevronDown, ChevronUp, CheckCircle, XCircle, WifiOff, Trash,
+  PlusCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 export default function TelegramSettingsPage() {
   const { toast } = useToast();
