@@ -1093,7 +1093,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = await storage.getTelegramBotSettings();
       let liveChats: TelegramBot.Chat[] = [];
       
-      if (settings?.isActive && settings?.token) {
+      // Note: We need to use is_active instead of isActive due to database column naming
+      if (settings && settings.token && (settings as any).is_active) {
         // Get live chat information if the bot is active
         try {
           // First make sure the bot is initialized
@@ -1126,8 +1127,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   log(`Removed ${missingChat.chatId} from monitored Telegram chats`);
                 }
                 
-                // Delete the chat entry with SQL - we need to use execute_sql since storage doesn't have a delete method
-                await db.execute(sql`DELETE FROM telegram_chats WHERE chat_id = ${missingChat.chatId}`);
+                // Delete the chat entry with SQL - we need to use the raw SQL client
+                await sql`DELETE FROM telegram_chats WHERE chat_id = ${missingChat.chatId}`;
                 log(`Deleted Telegram chat: ${missingChat.chatId}`);
               } catch (deleteError) {
                 log(`Error removing inaccessible Telegram chat ${missingChat.chatId}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`, 'error');
