@@ -1597,7 +1597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!token) {
         return res.status(400).json({
           success: false,
-          message: "No token provided"
+          message: "Token is required"
         });
       }
       
@@ -1678,6 +1678,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ 
         success: false, 
         message: "Failed to test Telegram connection. Please try again." 
+      });
+    }
+  });
+
+  // Test Telegram connection with stored token
+  app.post("/api/telegram-bot/check-stored-connection", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get stored bot settings
+      const settings = await storage.getTelegramBotSettings();
+      
+      // Check if a token exists
+      if (!settings || !settings.token) {
+        return res.status(400).json({
+          success: false,
+          message: "No stored token found. Please enter a token manually."
+        });
+      }
+      
+      // Clean up any existing bot instances
+      try {
+        const lockPath = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
+        if (fs.existsSync(lockPath)) {
+          log('Removing stale lock file before testing stored connection', 'debug');
+          fs.unlinkSync(lockPath);
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      } catch (cleanupError) {
+        log(`Warning during test preparation: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, 'debug');
+      }
+      
+      log('Testing Telegram bot connection with stored token');
+      
+      // Validate the stored token
+      const tokenValidation = validateTelegramToken(settings.token);
+      if (!tokenValidation.isValid) {
+        return res.status(400).json({
+          success: false,
+          message: "The stored token is invalid. Please enter a new token."
+        });
+      }
+      
+      // Use the cleaned token from validation if available
+      const cleanedToken = tokenValidation.cleanedToken || settings.token;
+      
+      // Create a temporary bot for testing
+      try {
+        log(`Testing stored token connection`, 'debug');
+        const testBot = new TelegramBot(cleanedToken, { polling: false });
+        
+        // Try to get bot info
+        const botInfo = await testBot.getMe();
+        
+        // Clean up resources
+        testBot.removeAllListeners();
+        
+        log(`Successfully connected to stored Telegram bot @${botInfo.username}`);
+        
+        return res.json({
+          success: true,
+          message: `Successfully connected to Telegram bot: @${botInfo.username}`,
+          botInfo
+        });
+      } catch (botError) {
+        let errorMessage = botError instanceof Error ? botError.message : String(botError);
+        
+        // Enhance error message for common issues
+        if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("Unauthorized")) {
+          errorMessage = "The stored token is no longer valid. Please enter a new token.";
+        } else if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("409 Conflict")) {
+          errorMessage = "Multiple bot instances are running with the same token. Please try again in a few moments.";
+        } else if (errorMessage.includes("ENOTFOUND") || errorMessage.includes("ETIMEDOUT")) {
+          errorMessage = "Network error. Could not connect to Telegram API servers.";
+        }
+        
+        return res.status(400).json({
+          success: false,
+          message: errorMessage
+        });
+      }
+    } catch (error) {
+      console.error("Error testing stored Telegram connection:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "Failed to test Telegram connection with stored token." 
       });
     }
   });

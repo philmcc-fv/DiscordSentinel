@@ -210,7 +210,16 @@ export default function TelegramSettingsPage() {
   const checkConnection = async () => {
     setIsCheckingConnection(true);
     try {
-      const response = await apiRequest("POST", "/api/telegram-bot/check-connection", { token });
+      // If token is masked (placeholder), use a special endpoint that uses the stored token
+      const isMaskedToken = token.includes("••••");
+      
+      const endpoint = isMaskedToken 
+        ? "/api/telegram-bot/check-stored-connection" 
+        : "/api/telegram-bot/check-connection";
+      
+      const payload = isMaskedToken ? {} : { token };
+      
+      const response = await apiRequest("POST", endpoint, payload);
       const result = await response.json();
       
       if (result.success) {
@@ -228,6 +237,8 @@ export default function TelegramSettingsPage() {
           helpText = " Please verify your bot token is correct.";
         } else if (errorDescription.includes("forbidden") || errorDescription.includes("access")) {
           helpText = " Make sure the bot has the necessary permissions.";
+        } else if (isMaskedToken && errorDescription.includes("No token provided")) {
+          helpText = " Please enter your full token again instead of using the masked version.";
         } else {
           helpText = " Please check your settings and try again.";
         }
