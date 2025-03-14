@@ -365,6 +365,9 @@ class TelegramAPI {
       const chatDetails: TelegramBot.Chat[] = [];
       const inaccessibleChatIds: string[] = [];
       
+      // We'll use this to keep track of what chats we've processed
+      const processedChatIds: Set<string> = new Set();
+      
       // Fetch current information for each stored chat
       for (const chat of storedChats) {
         try {
@@ -372,6 +375,7 @@ class TelegramAPI {
             const chatDetail = await this.bot.getChat(chat.chatId);
             if (chatDetail) {
               chatDetails.push(chatDetail);
+              processedChatIds.add(String(chat.chatId));
             }
           }
         } catch (chatError) {
@@ -385,6 +389,59 @@ class TelegramAPI {
       // The removal should happen in the route handler to avoid modifying data during a read operation
       if (inaccessibleChatIds.length > 0) {
         log(`Found ${inaccessibleChatIds.length} inaccessible chats that will be marked for removal`, 'info');
+      }
+      
+      // Now also try to discover new chats by using getUpdates
+      try {
+        if (this.bot) {
+          log('Attempting to discover new chats via getUpdates...', 'debug');
+          
+          // Get recent updates to find new chats
+          const updates = await this.bot.getUpdates({ limit: 100, timeout: 0 });
+          const newChats: Record<string, TelegramBot.Chat> = {};
+          
+          // Extract all unique chats from updates
+          for (const update of updates) {
+            if (update.message && update.message.chat) {
+              const chatId = String(update.message.chat.id);
+              
+              // Only process chats we haven't already processed
+              if (!processedChatIds.has(chatId) && !newChats[chatId]) {
+                try {
+                  // Get complete chat info for this chat
+                  const chatDetail = await this.bot.getChat(chatId);
+                  if (chatDetail) {
+                    newChats[chatId] = chatDetail;
+                    
+                    // Save this new chat to the database
+                    const chatExists = await storage.getTelegramChat(chatId);
+                    if (!chatExists) {
+                      await storage.createTelegramChat({
+                        chatId: chatId,
+                        type: chatDetail.type,
+                        title: chatDetail.title || '',
+                        username: chatDetail.username || '',
+                      });
+                      log(`Discovered and added new Telegram chat: ${chatDetail.title || chatDetail.username || chatId}`, 'info');
+                    }
+                  }
+                } catch (newChatError) {
+                  log(`Error getting detail for new chat ${chatId}: ${newChatError instanceof Error ? newChatError.message : String(newChatError)}`, 'debug');
+                }
+              }
+            }
+          }
+          
+          // Add newly discovered chats to the result
+          Object.values(newChats).forEach(chat => {
+            chatDetails.push(chat);
+          });
+          
+          log(`Total chats after discovery: ${chatDetails.length} (${Object.keys(newChats).length} newly discovered)`, 'debug');
+        }
+      } catch (discoveryError) {
+        // Don't fail the whole operation if discovery fails
+        log(`Error during chat discovery: ${discoveryError instanceof Error ? discoveryError.message : String(discoveryError)}`, 'warn');
       }
       
       return chatDetails;
