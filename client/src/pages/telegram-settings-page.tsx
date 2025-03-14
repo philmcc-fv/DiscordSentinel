@@ -381,10 +381,56 @@ export default function TelegramSettingsPage() {
   const [isExcludingUser, setIsExcludingUser] = useState(false);
   const [isRemovingUser, setIsRemovingUser] = useState<string | null>(null);
   
+  // Manual chat entry states and mutation
+  const [isAddChatDialogOpen, setIsAddChatDialogOpen] = useState(false);
+  const [manualChatId, setManualChatId] = useState("");
+  const [isAddingChat, setIsAddingChat] = useState(false);
+  
   // Fetch excluded users
   const { data: excludedUsers = [], isLoading: excludedUsersLoading, refetch: refetchExcludedUsers } = useQuery<any[]>({
     queryKey: ["/api/excluded-telegram-users"],
   });
+  
+  // Mutation for manually adding a Telegram chat
+  const addChatMutation = useMutation({
+    mutationFn: async (chatId: string) => {
+      const res = await apiRequest("POST", "/api/telegram-chats/add", { chatId });
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Chat added successfully",
+        description: data.message || "Chat has been added to your list",
+      });
+      
+      // Close dialog and reset form
+      setIsAddChatDialogOpen(false);
+      setManualChatId("");
+      
+      // Refresh chat lists
+      queryClient.invalidateQueries({ queryKey: ["/api/telegram-chats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/monitored-telegram-chats"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to add chat",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  });
+  
+  // Handle manual chat add submission
+  const handleAddChat = () => {
+    if (!manualChatId) return;
+    
+    setIsAddingChat(true);
+    addChatMutation.mutate(manualChatId, {
+      onSettled: () => {
+        setIsAddingChat(false);
+      }
+    });
+  };
   
   // Function to check all chats access status
   const checkAllChatsAccess = () => {
@@ -755,6 +801,14 @@ export default function TelegramSettingsPage() {
                         <><RefreshCw className="mr-2 h-4 w-4" /> Refresh Chats</>
                       )}
                     </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setIsAddChatDialogOpen(true)}
+                      disabled={!botSettings?.isActive}
+                    >
+                      <PlusCircle className="mr-2 h-4 w-4" /> Add Chat Manually
+                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -951,6 +1005,55 @@ export default function TelegramSettingsPage() {
           </Tabs>
         </div>
       </div>
+      
+      {/* Manual Chat Entry Dialog */}
+      <Dialog open={isAddChatDialogOpen} onOpenChange={setIsAddChatDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Add Telegram Chat Manually</DialogTitle>
+            <DialogDescription>
+              Enter the Telegram chat ID to add it to your monitored chats list.
+              You can find chat IDs by using a chat ID bot like @username_to_id_bot.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="manual-chat-id">Chat ID</Label>
+                <Input
+                  id="manual-chat-id"
+                  value={manualChatId}
+                  onChange={(e) => setManualChatId(e.target.value)}
+                  placeholder="Enter chat ID (e.g., -1001234567890)"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Make sure you've added the bot to this chat first.
+                  Group chat IDs usually start with -100 followed by digits.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsAddChatDialogOpen(false)}
+              disabled={isAddingChat}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddChat}
+              disabled={!manualChatId || isAddingChat}
+            >
+              {isAddingChat ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding Chat</>
+              ) : (
+                <>Add Chat</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
