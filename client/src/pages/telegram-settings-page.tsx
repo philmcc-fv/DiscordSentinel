@@ -78,10 +78,11 @@ export default function TelegramSettingsPage() {
         variant: "destructive",
       });
       // Mark as unknown status in case of error
-      setChatAccessStatus(prev => ({ 
-        ...prev, 
-        [variables]: null 
-      }));
+      setChatAccessStatus(prev => {
+        const newStatus = { ...prev };
+        newStatus[variables] = null;
+        return newStatus as Record<string, boolean | null>;
+      });
     },
     onSettled: (_, __, variables) => {
       // Remove from checking status
@@ -345,6 +346,24 @@ export default function TelegramSettingsPage() {
   const { data: excludedUsers = [], isLoading: excludedUsersLoading, refetch: refetchExcludedUsers } = useQuery<any[]>({
     queryKey: ["/api/excluded-telegram-users"],
   });
+  
+  // Function to check all chats access status
+  const checkAllChatsAccess = () => {
+    if (!botSettings?.isActive || !monitoredChats.length) return;
+    
+    // Create a toast for the process
+    toast({
+      title: "Checking chat access",
+      description: "Verifying accessibility of all Telegram chats...",
+    });
+    
+    // Check each chat with a small delay between each to avoid rate limiting
+    monitoredChats.forEach((chat: any, index: number) => {
+      setTimeout(() => {
+        checkChatAccessMutation.mutate(chat.chatId);
+      }, index * 500); // 500ms delay between each chat
+    });
+  };
   
   // Add user to excluded list
   const excludeUserMutation = useMutation({
@@ -660,19 +679,30 @@ export default function TelegramSettingsPage() {
                       Choose which Telegram chats you want to monitor for sentiment analysis
                     </CardDescription>
                   </div>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="ml-auto" 
-                    onClick={() => refreshChatsMutation.mutate()}
-                    disabled={isRefreshingChats || !botSettings?.isActive}
-                  >
-                    {isRefreshingChats ? (
-                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Refreshing</>
-                    ) : (
-                      <><RefreshCw className="mr-2 h-4 w-4" /> Refresh Chats</>
-                    )}
-                  </Button>
+                  <div className="flex space-x-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={checkAllChatsAccess}
+                      disabled={!botSettings?.isActive || monitoredChats.length === 0}
+                      title="Verify if all chats are still accessible"
+                    >
+                      <Shield className="mr-2 h-4 w-4" /> 
+                      Verify All Chats
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => refreshChatsMutation.mutate()}
+                      disabled={isRefreshingChats || !botSettings?.isActive}
+                    >
+                      {isRefreshingChats ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Refreshing</>
+                      ) : (
+                        <><RefreshCw className="mr-2 h-4 w-4" /> Refresh Chats</>
+                      )}
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {chatsLoading || isRefreshingChats ? (
@@ -743,6 +773,23 @@ export default function TelegramSettingsPage() {
                                 Monitored
                               </span>
                             )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => checkChatAccessMutation.mutate(chat.chatId)}
+                              disabled={checkingStatusChats[chat.chatId] || !botSettings?.isActive}
+                              title="Verify if this chat is still accessible"
+                              className="text-xs flex items-center"
+                            >
+                              {checkingStatusChats[chat.chatId] ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <>
+                                  <AlertCircle className="h-3 w-3 mr-1" />
+                                  Check Access
+                                </>
+                              )}
+                            </Button>
                           </div>
                         </div>
                       ))}
