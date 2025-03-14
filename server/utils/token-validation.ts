@@ -20,52 +20,91 @@ export function validateTelegramToken(token: string): {
     };
   }
 
-  // First, remove any whitespace that might have been copied
-  const trimmedToken = token.trim();
+  // First, perform aggressive cleaning of the token to handle database storage issues
+  // Remove all whitespace, control characters and non-printable characters
+  let cleanToken = token.replace(/\s+/g, '').replace(/[^\x20-\x7E]/g, '');
   
   // Check if token has the basic required format (numbers, colon, then alphanumeric)
-  if (!trimmedToken.includes(':')) {
-    return {
-      isValid: false,
-      message: "Invalid token format. Token must contain a colon separating the bot ID and secret."
-    };
-  }
-
-  // Remove any non-printable or problematic characters
-  // Only allow digits, letters, colons, underscores, and hyphens which are valid in a Telegram bot token
-  const cleanedToken = trimmedToken.replace(/[^\d:A-Za-z0-9_-]/g, '');
-  
-  if (cleanedToken !== trimmedToken) {
-    // If we had to clean the token, warn the user but still return it if valid
-    if (cleanedToken.match(/^\d+:[A-Za-z0-9_-]+$/)) {
-      return {
-        isValid: true,
-        cleanedToken,
-        message: "Token contained invalid characters that were removed."
-      };
+  if (!cleanToken.includes(':')) {
+    // Try to find patterns that might suggest a corrupted token
+    const numericPart = cleanToken.match(/^\d+/);
+    const alphaNumericPart = cleanToken.match(/[A-Za-z0-9_-]{30,}$/);
+    
+    if (numericPart && alphaNumericPart && numericPart[0].length >= 8) {
+      // This looks like it might be a corrupted token with parts but missing colon
+      // Try to reconstruct it
+      const botId = numericPart[0];
+      const secret = alphaNumericPart[0];
+      cleanToken = `${botId}:${secret}`;
     } else {
       return {
         isValid: false,
-        message: "Token contains invalid characters and doesn't match the expected format: numbers, colon, then letters/numbers/symbols."
+        message: "Invalid token format. Token must contain a colon separating the bot ID and secret."
+      };
+    }
+  }
+
+  // Standard Telegram token format: "123456789:ABCDefgh-ijKLmnoPQRst_uvwxyz"
+  // Split token by colon to validate each part separately
+  const parts = cleanToken.split(':');
+  
+  if (parts.length !== 2) {
+    // Try to reconstruct with only the first colon if multiple exist
+    const firstColonIndex = cleanToken.indexOf(':');
+    const botId = cleanToken.substring(0, firstColonIndex);
+    const secret = cleanToken.substring(firstColonIndex + 1).replace(/:/g, '');
+    
+    if (botId && secret) {
+      cleanToken = `${botId}:${secret}`;
+      parts[0] = botId;
+      parts[1] = secret;
+    } else {
+      return {
+        isValid: false,
+        message: "Invalid token format. Token must have exactly one colon separating the bot ID and secret."
       };
     }
   }
   
-  // Final validation check
-  if (!cleanedToken.match(/^\d+:[A-Za-z0-9_-]+$/)) {
+  const [botId, secret] = parts;
+  
+  // Clean the botId to ensure it only contains numbers
+  const cleanedBotId = botId.replace(/\D/g, '');
+  
+  if (cleanedBotId.length === 0) {
     return {
       isValid: false,
-      message: "Token doesn't match the expected format: numbers, colon, then letters/numbers/symbols."
+      message: "Invalid token format. Bot ID part (before colon) must contain digits."
     };
   }
   
-  // Check if token has a reasonable length
-  if (cleanedToken.length < 15) { // Typically tokens are longer, this is a minimum check
+  // Clean the secret to ensure it only contains allowed characters
+  const cleanedSecret = secret.replace(/[^A-Za-z0-9_-]/g, '');
+  
+  if (cleanedSecret.length === 0) {
     return {
       isValid: false,
-      message: "Token appears too short to be valid."
+      message: "Invalid token format. Secret part (after colon) is invalid."
     };
   }
+
+  // Check minimum lengths for each part
+  if (cleanedBotId.length < 8) {
+    return {
+      isValid: false,
+      message: "Invalid token format. Bot ID part appears too short (should be at least 8 digits)."
+    };
+  }
+  
+  if (cleanedSecret.length < 30) {
+    return {
+      isValid: false,
+      message: "Invalid token format. Secret part appears too short (should be at least 30 characters)."
+    };
+  }
+  
+  // This is a cleaned token with proper format
+  const cleanedToken = `${cleanedBotId}:${cleanedSecret}`;
   
   return {
     isValid: true,

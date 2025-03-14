@@ -10,10 +10,12 @@ import { analyzeSentiment } from "./openai";
 import { GuildChannel } from "discord.js";
 import { telegramAPI } from "./telegram-api";
 import { startTelegramBot, setupMessageListeners as setupTelegramMessageListeners, fetchHistoricalMessages as fetchTelegramHistoricalMessages } from "./telegram-bot";
-import * as TelegramBot from 'node-telegram-bot-api';
+import TelegramBot from 'node-telegram-bot-api';
 import * as fs from 'fs';
 import * as path from 'path';
+import { InsertTelegramChat } from '../shared/schema';
 import { validateTelegramToken, validateDiscordToken } from './utils/token-validation';
+import { db, sql } from './db';
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1085,6 +1087,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
     try {
+      // Clean up any stale Telegram bot instances before proceeding
+      try {
+        const lockPath = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
+        if (fs.existsSync(lockPath)) {
+          // Check if lock is stale (older than 5 minutes)
+          const stats = fs.statSync(lockPath);
+          const age = Date.now() - stats.mtimeMs;
+          
+          if (age > 300000) { // 5 minutes in ms
+            log('Found stale Telegram bot lock file, removing it', 'warn');
+            fs.unlinkSync(lockPath);
+          }
+        }
+      } catch (cleanupError) {
+        log(`Warning when cleaning up stale locks: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, 'warn');
+      }
+      
       // First, get stored chats from the database
       const storedChats = await storage.getTelegramChats();
       
@@ -1092,23 +1111,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const settings = await storage.getTelegramBotSettings();
       let liveChats: TelegramBot.Chat[] = [];
       
-      if (settings?.isActive && settings?.token) {
-        // Get live chat information if the bot is active
+      // Note: We need to use is_active instead of isActive due to database column naming
+      if (settings && settings.token) {
+        const isActive = (settings as any).is_active === true || (settings as any).is_active === 't';
+        
         try {
-          // First make sure the bot is initialized
+          log('Attempting to fetch live Telegram chats...', 'debug');
+          
+          // Try to initialize the bot if not ready
           if (!telegramAPI.isReady()) {
+            log('Initializing Telegram bot to fetch chats', 'debug');
             await telegramAPI.initialize(settings.token);
           }
           
-          // Then get the current chats
+          // Get the current chats
           liveChats = await telegramAPI.getChats();
           log(`Retrieved ${liveChats.length} live Telegram chats`, 'debug');
+          
+          // If we've successfully connected, update the is_active status to true
+          if (!isActive && telegramAPI.isReady()) {
+            log('Updating Telegram bot status to active', 'info');
+            await storage.createOrUpdateTelegramBotSettings({
+              ...settings,
+              isActive: true
+            });
+          }
+          
+          // Identify and remove chats that are no longer accessible
+          if (liveChats.length > 0) {
+            const liveChatIds = liveChats.map(chat => String(chat.id));
+            
+            // Find stored chats that are no longer accessible
+            const missingChats = storedChats.filter(storedChat => 
+              !liveChatIds.includes(storedChat.chatId)
+            );
+            
+            if (missingChats.length > 0) {
+              log(`Found ${missingChats.length} Telegram chats that are no longer accessible`, 'info');
+            
+              // Remove chats that are no longer accessible
+              for (const missingChat of missingChats) {
+                log(`Removing Telegram chat that is no longer accessible: ${missingChat.title || missingChat.username || missingChat.chatId}`, 'info');
+                try {
+                  // Delete from monitored chats first (if monitored)
+                  const isMonitored = await storage.isTelegramChatMonitored(missingChat.chatId);
+                  if (isMonitored) {
+                    await storage.setTelegramChatMonitored(missingChat.chatId, false);
+                    log(`Removed ${missingChat.chatId} from monitored Telegram chats`);
+                  }
+                  
+                  // Delete the chat entry with raw SQL
+                  await sql`DELETE FROM telegram_chats WHERE chat_id = ${missingChat.chatId}`;
+                  log(`Deleted Telegram chat: ${missingChat.chatId}`);
+                } catch (deleteError) {
+                  log(`Error removing inaccessible Telegram chat ${missingChat.chatId}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`, 'error');
+                }
+              }
+            } else {
+              log('All stored Telegram chats are still accessible', 'debug');
+            }
+          }
         } catch (botError) {
           log(`Error getting live Telegram chats: ${botError instanceof Error ? botError.message : String(botError)}`, 'error');
         }
+      } else {
+        log('No Telegram bot settings found or token missing', 'debug');
       }
       
-      // Process each stored chat to ensure it's in the database
+      // Process each live chat to ensure it's in the database
       for (const liveChat of liveChats) {
         const chatId = String(liveChat.id);
         const existingChat = storedChats.find(c => c.chatId === chatId);
@@ -1116,20 +1186,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!existingChat) {
           // Add new chat to database
           try {
-            await storage.createTelegramChat({
+            const newChat = {
               chatId,
               type: liveChat.type,
               title: liveChat.title || '',
               username: liveChat.username || '',
-            });
+              isActive: true,
+              lastChecked: new Date()
+            };
+            
+            await storage.createTelegramChat(newChat);
             
             // Add the newly created chat to our stored chats list
             storedChats.push({
               id: 0, // This will be auto-assigned by the database
-              chatId,
-              type: liveChat.type,
-              title: liveChat.title || '',
-              username: liveChat.username || '',
+              ...newChat,
               createdAt: new Date()
             });
             
@@ -1142,10 +1213,211 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Return the updated list of stored chats
       const refreshedChats = await storage.getTelegramChats();
+      log(`Returning ${refreshedChats.length} Telegram chats to client`, 'debug');
       res.json(refreshedChats);
     } catch (error) {
       log(`Error getting combined Telegram chats: ${error instanceof Error ? error.message : String(error)}`, 'error');
       res.status(500).json({ error: "Failed to fetch Telegram chats" });
+    }
+  });
+
+  // API endpoint for checking all monitored chat statuses in bulk
+  app.get("/api/telegram-chats/status/check-all", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get the bot settings to check if we can perform this operation
+      const settings = await storage.getTelegramBotSettings();
+      
+      if (!settings || !settings.token) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Telegram bot is not configured" 
+        });
+      }
+      
+      // Initialize the Telegram bot if needed
+      if (!telegramAPI.isReady()) {
+        log('Initializing Telegram bot for status check', 'debug');
+        const initialized = await telegramAPI.initialize(settings.token);
+        if (!initialized) {
+          return res.status(500).json({
+            success: false,
+            message: "Failed to initialize Telegram bot"
+          });
+        }
+      }
+      
+      // Perform a refresh of live chats first to discover new ones
+      log('Refreshing live chats before status check', 'debug');
+      await telegramAPI.getChats();
+      
+      // Update all chat statuses
+      log('Updating all chat statuses', 'debug');
+      const result = await telegramAPI.updateAllChatStatuses();
+      
+      // If we found new chats, refresh the monitored chats list
+      if (result.newlyDiscovered > 0) {
+        log(`Found ${result.newlyDiscovered} new chats, refreshing chat list`, 'info');
+        await storage.getTelegramChats(); // Force refresh
+      }
+      
+      // Build a helpful message based on results
+      let resultMessage = `Successfully checked ${result.total} chat statuses`;
+      if (result.newlyDiscovered > 0) {
+        resultMessage += ` and discovered ${result.newlyDiscovered} new chats`;
+      }
+      
+      if (result.inactive > 0) {
+        resultMessage += `. ${result.inactive} chats are no longer accessible`;
+      }
+      
+      return res.json({
+        success: true,
+        message: resultMessage,
+        data: result
+      });
+    } catch (error) {
+      log(`Error checking all chat statuses: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      return res.status(500).json({ 
+        success: false, 
+        message: `Error checking chat statuses: ${error instanceof Error ? error.message : String(error)}`
+      });
+    }
+  });
+  
+  // API endpoint for checking if a specific chat is accessible
+  app.get("/api/telegram-chats/:chatId/check-access", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { chatId } = req.params;
+      
+      if (!chatId) {
+        return res.status(400).json({ error: "Chat ID is required" });
+      }
+      
+      // Get the bot settings to check if we can perform this operation
+      const settings = await storage.getTelegramBotSettings();
+      
+      if (!settings || !settings.token) {
+        return res.status(400).json({ 
+          success: false, 
+          isActive: false,
+          message: "Telegram bot token is not configured" 
+        });
+      }
+      
+      // Check if bot is already initialized or try to initialize it
+      let botReady = telegramAPI.isReady();
+      if (!botReady) {
+        try {
+          log(`Attempting to initialize Telegram bot for chat access check`);
+          botReady = await telegramAPI.initialize(settings.token);
+        } catch (initError) {
+          log(`Failed to initialize Telegram bot: ${initError instanceof Error ? initError.message : String(initError)}`, 'error');
+        }
+      }
+      
+      // First try using the existing API instance
+      let chatStatus: { isActive: boolean, message?: string };
+      
+      if (botReady) {
+        // Use the existing bot if it's ready
+        log(`Using main Telegram bot to check chat ${chatId} status`);
+        chatStatus = await telegramAPI.isChatActive(chatId);
+      } else {
+        // If the main bot is not ready (possibly due to lock), create a temporary bot instance for this check
+        try {
+          log(`Creating temporary bot instance to check chat ${chatId} status`);
+          
+          // Create a temporary bot just for this check - no token validation needed
+          const tempBot = new TelegramBot(settings.token, { polling: false });
+          
+          try {
+            // Try to get chat info with the temporary bot
+            const chatInfo = await tempBot.getChat(chatId);
+            chatStatus = { 
+              isActive: true, 
+              message: `Chat is accessible: ${chatInfo.type} "${chatInfo.title || chatInfo.username || chatId}"`
+            };
+          } catch (botError) {
+            const errorMessage = botError instanceof Error ? botError.message : String(botError);
+            
+            // Check common error messages that indicate the bot is not in the chat
+            if (
+              errorMessage.includes('chat not found') || 
+              errorMessage.includes('bot was kicked') || 
+              errorMessage.includes('ETELEGRAM: 403') ||
+              errorMessage.includes('bot was blocked') ||
+              errorMessage.includes('chat_id is empty')
+            ) {
+              chatStatus = { 
+                isActive: false, 
+                message: `Bot does not have access to this chat` 
+              };
+            } else {
+              chatStatus = { 
+                isActive: false, 
+                message: `Error checking chat status` 
+              };
+            }
+          } finally {
+            // Clean up the temporary bot
+            tempBot.removeAllListeners();
+          }
+        } catch (tempBotError) {
+          log(`Error creating temporary bot: ${tempBotError instanceof Error ? tempBotError.message : String(tempBotError)}`, 'error');
+          chatStatus = { 
+            isActive: false, 
+            message: 'Could not create temporary bot to check chat status' 
+          };
+        }
+      }
+      
+      // Update the chat in the database
+      try {
+        const chat = await storage.getTelegramChat(chatId);
+        if (chat) {
+          // Create a complete update with all required fields
+          const updateData = {
+            chatId: chat.chatId,
+            type: chat.type,
+            title: chat.title || "",
+            username: chat.username || "",
+            isActive: chatStatus.isActive,
+            lastChecked: new Date()
+          };
+          
+          // Update chat status
+          await storage.updateTelegramChat(updateData);
+          log(`Updated chat ${chatId} status: isActive=${chatStatus.isActive}`);
+          
+          // If not active, remove from monitored chats
+          if (!chatStatus.isActive) {
+            const isMonitored = await storage.isTelegramChatMonitored(chatId);
+            if (isMonitored) {
+              await storage.setTelegramChatMonitored(chatId, false);
+              log(`Removed inaccessible chat ${chatId} from monitored chats`);
+            }
+          }
+        }
+      } catch (dbError) {
+        log(`Error updating chat status: ${dbError instanceof Error ? dbError.message : String(dbError)}`, 'error');
+      }
+      
+      res.json({
+        success: true,
+        isActive: chatStatus.isActive,
+        message: chatStatus.message || (chatStatus.isActive ? "Chat is accessible" : "Chat is not accessible")
+      });
+    } catch (error) {
+      log(`Error checking chat access: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(400).json({ 
+        success: false, 
+        isActive: false,
+        message: "Failed to check chat access"
+      });
     }
   });
 
@@ -1194,6 +1466,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // API endpoint for manually adding a Telegram chat by ID
+  app.post("/api/telegram-chats/add", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { chatId } = req.body;
+      
+      if (!chatId) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Chat ID is required" 
+        });
+      }
+      
+      // Get current settings to check if bot is active
+      const settings = await storage.getTelegramBotSettings();
+      
+      if (!settings || !settings.token) {
+        return res.status(400).json({ 
+          success: false,
+          message: "Telegram bot token is not configured" 
+        });
+      }
+      
+      // Check if this chat ID already exists
+      const existingChat = await storage.getTelegramChat(chatId);
+      if (existingChat) {
+        return res.status(400).json({
+          success: false,
+          message: "This chat ID already exists in the database"
+        });
+      }
+      
+      // Get details about the chat from Telegram API
+      try {
+        // Try to initialize the bot if not ready
+        if (!telegramAPI.isReady()) {
+          log('Initializing Telegram bot to fetch chat info', 'debug');
+          await telegramAPI.initialize(settings.token);
+        }
+        
+        // Get the chat info
+        const chatInfo = await telegramAPI.getChat(chatId);
+        
+        if (!chatInfo) {
+          return res.status(400).json({ 
+            success: false,
+            message: "Could not find this chat ID. Make sure the bot has been added to the chat." 
+          });
+        }
+        
+        // Add the chat to the database
+        const newChat = {
+          chatId: String(chatInfo.id),
+          type: chatInfo.type,
+          title: chatInfo.title || '',
+          username: chatInfo.username || '',
+          isActive: true,
+          lastChecked: new Date()
+        };
+        
+        await storage.createTelegramChat(newChat);
+        
+        log(`Manually added new Telegram chat: ${chatInfo.title || chatInfo.username || chatId}`, 'info');
+        
+        res.json({ 
+          success: true,
+          message: `Successfully added chat: ${chatInfo.title || chatInfo.username || chatId}`,
+          chat: {
+            ...newChat,
+            id: 0, // This will be assigned by the database
+            createdAt: new Date()
+          }
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        log(`Error adding Telegram chat: ${errorMessage}`, 'error');
+        
+        // Check for common error messages that indicate the bot is not in the chat
+        if (
+          errorMessage.includes('chat not found') || 
+          errorMessage.includes('bot was kicked') || 
+          errorMessage.includes('ETELEGRAM: 403') ||
+          errorMessage.includes('bot was blocked') ||
+          errorMessage.includes('chat_id is empty')
+        ) {
+          return res.status(400).json({ 
+            success: false,
+            message: `Bot does not have access to this chat. Please add the bot to the chat first.` 
+          });
+        }
+        
+        res.status(500).json({ 
+          success: false,
+          message: `Error adding chat: ${errorMessage}`
+        });
+      }
+    } catch (error) {
+      log(`Error in manual chat add endpoint: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to add Telegram chat" 
+      });
+    }
+  });
+
   // Telegram bot settings
   app.get("/api/telegram-bot/settings", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -1225,19 +1603,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Validate token if provided
       if (req.body.token) {
-        // Use the centralized token validation utility
-        const validation = validateTelegramToken(req.body.token);
-        
-        if (!validation.isValid) {
-          return res.status(400).json({ 
-            success: false,
-            message: `Invalid token format. ${validation.message}`
-          });
-        }
-        
-        // If the token was cleaned, use the cleaned version
-        if (validation.cleanedToken && validation.cleanedToken !== req.body.token) {
-          log(`Token was cleaned: ${validation.message}`, 'debug');
+        // Skip validation for masked tokens
+        if (req.body.token === "••••••••••••••••••••••••••") {
+          // User didn't change the token, keep the previous one
+          log('User kept the existing token, not updating it', 'debug');
+          
+          if (previousToken) {
+            req.body.token = previousToken;
+          } else {
+            // This shouldn't happen but handle it gracefully
+            return res.status(400).json({ 
+              success: false,
+              message: `Cannot use masked token placeholder. Please enter a real token.`
+            });
+          }
+        } else {
+          // Aggressively sanitize the token before validation
+          const sanitizedToken = req.body.token.replace(/\s+/g, '').replace(/[^\x20-\x7E]/g, '');
+          
+          // Use the centralized token validation utility
+          const validation = validateTelegramToken(sanitizedToken);
+          
+          if (!validation.isValid) {
+            return res.status(400).json({ 
+              success: false,
+              message: `Invalid token format. ${validation.message}`
+            });
+          }
+          
+          // Always use the cleaned token from validation
+          log(`Using cleaned and validated token for storage`, 'debug');
           req.body.token = validation.cleanedToken;
         }
       }
@@ -1327,24 +1722,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { token } = req.body;
       
-      // Use the validation utility to check the token
-      const validation = validateTelegramToken(token);
-      
-      if (!validation.isValid) {
+      if (!token) {
         return res.status(400).json({
           success: false,
-          message: validation.message
+          message: "Token is required"
         });
       }
       
-      // Use the cleaned token for all operations
-      const cleanToken = validation.cleanedToken || token;
-      
-      // Log validation result if token was cleaned
-      if (validation.message) {
-        log(`Token validation: ${validation.message}`, 'debug');
-      }
-      
+      // Skip strict validation and just make a test connection
       // Clean up any existing bot instances first
       try {
         const lockPath = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
@@ -1359,15 +1744,154 @@ export async function registerRoutes(app: Express): Promise<Server> {
         log(`Warning during test preparation: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, 'debug');
       }
       
-      // Test the connection with the cleaned token
-      const result = await telegramAPI.testConnection(cleanToken);
+      log('Testing Telegram bot connection with token');
       
-      res.json(result);
+      // Aggressively sanitize the token before validation
+      // This is especially useful for tokens copied from websites with invisible characters
+      const sanitizedToken = token.replace(/\s+/g, '').replace(/[^\x20-\x7E]/g, '');
+      
+      // Validate token format first
+      const tokenValidation = validateTelegramToken(sanitizedToken);
+      if (!tokenValidation.isValid) {
+        return res.status(400).json({
+          success: false,
+          message: tokenValidation.message || "Invalid token format. Token must contain a colon separating the bot ID and secret."
+        });
+      }
+      
+      // Use the cleaned token from validation if available
+      const cleanedToken = tokenValidation.cleanedToken || sanitizedToken;
+      
+      // Create a temporary bot for testing without polling
+      try {
+        log(`Testing connection with validated token`, 'debug');
+        const testBot = new TelegramBot(cleanedToken, { polling: false });
+        
+        // Try to get bot info
+        const botInfo = await testBot.getMe();
+        
+        // Clean up resources
+        testBot.removeAllListeners();
+        
+        // If we get here, it means the connection was successful
+        // Let's log the cleaned token format that worked for debugging purposes
+        log(`Successfully connected to Telegram bot @${botInfo.username}`);
+        
+        return res.json({
+          success: true,
+          message: `Successfully connected to Telegram bot: @${botInfo.username}`,
+          botInfo
+        });
+      } catch (botError) {
+        let errorMessage = botError instanceof Error ? botError.message : String(botError);
+        
+        // Enhance error message for common issues
+        if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("Unauthorized")) {
+          errorMessage = "Invalid bot token. Please check your token and try again.";
+        } else if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("characters")) {
+          errorMessage = "Invalid token format. Please check for any special characters in your token.";
+        } else if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("409 Conflict")) {
+          errorMessage = "Multiple bot instances are running with the same token. Please try again in a few moments.";
+        } else if (errorMessage.includes("ENOTFOUND") || errorMessage.includes("ETIMEDOUT")) {
+          errorMessage = "Network error. Could not connect to Telegram API servers.";
+        }
+        
+        return res.status(400).json({
+          success: false,
+          message: errorMessage
+        });
+      }
     } catch (error) {
       console.error("Error testing Telegram connection:", error);
       res.status(500).json({ 
         success: false, 
-        message: `Failed to test Telegram connection: ${error instanceof Error ? error.message : String(error)}` 
+        message: "Failed to test Telegram connection. Please try again." 
+      });
+    }
+  });
+
+  // Test Telegram connection with stored token
+  app.post("/api/telegram-bot/check-stored-connection", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get stored bot settings
+      const settings = await storage.getTelegramBotSettings();
+      
+      // Check if a token exists
+      if (!settings || !settings.token) {
+        return res.status(400).json({
+          success: false,
+          message: "No stored token found. Please enter a token manually."
+        });
+      }
+      
+      // Clean up any existing bot instances
+      try {
+        const lockPath = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
+        if (fs.existsSync(lockPath)) {
+          log('Removing stale lock file before testing stored connection', 'debug');
+          fs.unlinkSync(lockPath);
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      } catch (cleanupError) {
+        log(`Warning during test preparation: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`, 'debug');
+      }
+      
+      log('Testing Telegram bot connection with stored token');
+      
+      // Validate the stored token
+      const tokenValidation = validateTelegramToken(settings.token);
+      if (!tokenValidation.isValid) {
+        return res.status(400).json({
+          success: false,
+          message: "The stored token is invalid. Please enter a new token."
+        });
+      }
+      
+      // Use the cleaned token from validation if available
+      const cleanedToken = tokenValidation.cleanedToken || settings.token;
+      
+      // Create a temporary bot for testing
+      try {
+        log(`Testing stored token connection`, 'debug');
+        const testBot = new TelegramBot(cleanedToken, { polling: false });
+        
+        // Try to get bot info
+        const botInfo = await testBot.getMe();
+        
+        // Clean up resources
+        testBot.removeAllListeners();
+        
+        log(`Successfully connected to stored Telegram bot @${botInfo.username}`);
+        
+        return res.json({
+          success: true,
+          message: `Successfully connected to Telegram bot: @${botInfo.username}`,
+          botInfo
+        });
+      } catch (botError) {
+        let errorMessage = botError instanceof Error ? botError.message : String(botError);
+        
+        // Enhance error message for common issues
+        if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("Unauthorized")) {
+          errorMessage = "The stored token is no longer valid. Please enter a new token.";
+        } else if (errorMessage.includes("ETELEGRAM") && errorMessage.includes("409 Conflict")) {
+          errorMessage = "Multiple bot instances are running with the same token. Please try again in a few moments.";
+        } else if (errorMessage.includes("ENOTFOUND") || errorMessage.includes("ETIMEDOUT")) {
+          errorMessage = "Network error. Could not connect to Telegram API servers.";
+        }
+        
+        return res.status(400).json({
+          success: false,
+          message: errorMessage
+        });
+      }
+    } catch (error) {
+      console.error("Error testing stored Telegram connection:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: "Failed to test Telegram connection with stored token." 
       });
     }
   });

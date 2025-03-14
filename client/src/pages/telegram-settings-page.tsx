@@ -7,10 +7,17 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, RotateCw, Play, Square, HelpCircle, AlertCircle, Shield, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { 
+  Loader2, Save, RotateCw, Play, Square, HelpCircle, AlertCircle, Shield, 
+  RefreshCw, ChevronDown, ChevronUp, CheckCircle, XCircle, WifiOff, Trash,
+  PlusCircle
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 export default function TelegramSettingsPage() {
   const { toast } = useToast();
@@ -25,6 +32,11 @@ export default function TelegramSettingsPage() {
   const [isStartingBot, setIsStartingBot] = useState(false);
   const [selectedChats, setSelectedChats] = useState<string[]>([]);
   
+  // Track chats being checked for active status
+  const [checkingStatusChats, setCheckingStatusChats] = useState<Record<string, boolean>>({});
+  // Track chat access statuses (using null for unknown status)
+  const [chatAccessStatus, setChatAccessStatus] = useState<Record<string, boolean | null>>({});
+  
   // Load bot settings
   const { data: botSettings, isLoading } = useQuery<any>({
     queryKey: ["/api/telegram-bot/settings"],
@@ -35,6 +47,81 @@ export default function TelegramSettingsPage() {
     queryKey: ["/api/monitored-telegram-chats"],
   });
   
+  // Check all chat statuses at once
+  const checkAllChatsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/telegram-chats/status/check-all");
+      const data = await res.json();
+      return data;
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Chat Status Check Complete",
+        description: `Checked ${data.data ? data.data.total : 0} chats: ${data.data ? data.data.active : 0} active, ${data.data ? data.data.inactive : 0} inactive, ${data.data ? data.data.errored : 0} errored`,
+        variant: "default"
+      });
+      
+      // Refresh the chat list to show updated statuses
+      refetchChats();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to check chat statuses",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Check if a chat is accessible
+  const checkChatAccessMutation = useMutation({
+    mutationFn: async (chatId: string) => {
+      setCheckingStatusChats(prev => ({ ...prev, [chatId]: true }));
+      const res = await apiRequest("GET", `/api/telegram-chats/${chatId}/check-access`);
+      return { chatId, result: await res.json() };
+    },
+    onSuccess: (data) => {
+      const { chatId, result } = data;
+      // Update the status in our state
+      setChatAccessStatus(prev => ({ 
+        ...prev, 
+        [chatId]: result.isActive 
+      }));
+      
+      // Show toast if the chat is not accessible
+      if (!result.isActive) {
+        toast({
+          title: "Chat removed",
+          description: `Chat "${chatId}" is no longer accessible and has been removed.`,
+          variant: "destructive"
+        });
+        // Refresh chats to reflect the removed chat
+        refetchChats();
+      }
+    },
+    onError: (error: Error, variables) => {
+      toast({
+        title: "Failed to check chat access",
+        description: error.message,
+        variant: "destructive",
+      });
+      // Mark as unknown status in case of error
+      setChatAccessStatus(prev => {
+        const newStatus = { ...prev };
+        newStatus[variables] = null;
+        return newStatus as Record<string, boolean | null>;
+      });
+    },
+    onSettled: (_, __, variables) => {
+      // Remove from checking status
+      setCheckingStatusChats(prev => {
+        const newState = { ...prev };
+        delete newState[variables];
+        return newState;
+      });
+    }
+  });
+  
   // Create a refreshChats mutation to use the new live chats endpoint
   const [isRefreshingChats, setIsRefreshingChats] = useState(false);
   const refreshChatsMutation = useMutation({
@@ -43,14 +130,27 @@ export default function TelegramSettingsPage() {
       const res = await apiRequest("GET", "/api/telegram-chats/live");
       return await res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (data) => {
       toast({
         title: "Chats refreshed",
         description: "Updated chat list with the latest available Telegram chats.",
       });
       // Refresh all chat-related queries
-      queryClient.invalidateQueries({ queryKey: ["/api/telegram-chats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/monitored-telegram-chats"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/telegram-chats"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/monitored-telegram-chats"] });
+      
+      // After refreshing the chat list, automatically check their status
+      // This ensures we have up-to-date access information
+      if (botSettings?.isActive) {
+        try {
+          // Small delay to ensure the list is fully refreshed
+          setTimeout(() => {
+            checkAllChatsMutation.mutate();
+          }, 500);
+        } catch (err) {
+          console.error("Error checking chat status after refresh:", err);
+        }
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -125,7 +225,16 @@ export default function TelegramSettingsPage() {
   const checkConnection = async () => {
     setIsCheckingConnection(true);
     try {
-      const response = await apiRequest("POST", "/api/telegram-bot/check-connection", { token });
+      // If token is masked (placeholder), use a special endpoint that uses the stored token
+      const isMaskedToken = token.includes("••••");
+      
+      const endpoint = isMaskedToken 
+        ? "/api/telegram-bot/check-stored-connection" 
+        : "/api/telegram-bot/check-connection";
+      
+      const payload = isMaskedToken ? {} : { token };
+      
+      const response = await apiRequest("POST", endpoint, payload);
       const result = await response.json();
       
       if (result.success) {
@@ -143,6 +252,8 @@ export default function TelegramSettingsPage() {
           helpText = " Please verify your bot token is correct.";
         } else if (errorDescription.includes("forbidden") || errorDescription.includes("access")) {
           helpText = " Make sure the bot has the necessary permissions.";
+        } else if (isMaskedToken && errorDescription.includes("No token provided")) {
+          helpText = " Please enter your full token again instead of using the masked version.";
         } else {
           helpText = " Please check your settings and try again.";
         }
@@ -283,10 +394,74 @@ export default function TelegramSettingsPage() {
   const [isExcludingUser, setIsExcludingUser] = useState(false);
   const [isRemovingUser, setIsRemovingUser] = useState<string | null>(null);
   
+  // Manual chat entry states and mutation
+  const [isAddChatDialogOpen, setIsAddChatDialogOpen] = useState(false);
+  const [manualChatId, setManualChatId] = useState("");
+  const [isAddingChat, setIsAddingChat] = useState(false);
+  
   // Fetch excluded users
   const { data: excludedUsers = [], isLoading: excludedUsersLoading, refetch: refetchExcludedUsers } = useQuery<any[]>({
     queryKey: ["/api/excluded-telegram-users"],
   });
+  
+  // Mutation for manually adding a Telegram chat
+  const addChatMutation = useMutation({
+    mutationFn: async (chatId: string) => {
+      const res = await apiRequest("POST", "/api/telegram-chats/add", { chatId });
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Chat added successfully",
+        description: data.message || "Chat has been added to your list",
+      });
+      
+      // Close dialog and reset form
+      setIsAddChatDialogOpen(false);
+      setManualChatId("");
+      
+      // Refresh chat lists
+      queryClient.invalidateQueries({ queryKey: ["/api/telegram-chats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/monitored-telegram-chats"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to add chat",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  });
+  
+  // Handle manual chat add submission
+  const handleAddChat = () => {
+    if (!manualChatId) return;
+    
+    setIsAddingChat(true);
+    addChatMutation.mutate(manualChatId, {
+      onSettled: () => {
+        setIsAddingChat(false);
+      }
+    });
+  };
+  
+  // Function to check all chats access status
+  const checkAllChatsAccess = () => {
+    if (!botSettings?.isActive || !monitoredChats.length) return;
+    
+    // Create a toast for the process
+    toast({
+      title: "Checking chat access",
+      description: "Verifying accessibility of all Telegram chats...",
+    });
+    
+    // Check each chat with a small delay between each to avoid rate limiting
+    monitoredChats.forEach((chat: any, index: number) => {
+      setTimeout(() => {
+        checkChatAccessMutation.mutate(chat.chatId);
+      }, index * 500); // 500ms delay between each chat
+    });
+  };
   
   // Add user to excluded list
   const excludeUserMutation = useMutation({
@@ -460,10 +635,21 @@ export default function TelegramSettingsPage() {
                       <p className="mt-1">Valid format: <code className="bg-orange-100 dark:bg-orange-900 px-1 py-0.5 rounded">123456789:ABCDefgh-ijKLmnoPQRst_uvwxyz</code></p>
                       <p className="mt-1">The token must match this pattern:</p>
                       <ul className="list-disc list-inside ml-1 mt-1">
-                        <li>Start with <strong>numbers</strong> (bot ID)</li>
+                        <li>Start with <strong>numbers</strong> (bot ID, at least 8 digits)</li>
                         <li>Followed by a <strong>colon (:)</strong></li>
-                        <li>End with <strong>letters, numbers, hyphens, and/or underscores</strong> only</li>
+                        <li>End with <strong>letters, numbers, hyphens, and/or underscores</strong> only (at least 30 characters)</li>
                       </ul>
+                      
+                      <div className="mt-2 bg-orange-100 dark:bg-orange-900 p-2 rounded">
+                        <p className="font-semibold">How to get your bot token:</p>
+                        <ol className="list-decimal list-inside ml-1 mt-1">
+                          <li>Open Telegram and search for <strong>@BotFather</strong></li>
+                          <li>Send <code>/newbot</code> and follow instructions</li>
+                          <li>When complete, BotFather will send you the token</li>
+                          <li>Copy the ENTIRE token including the colon (:)</li>
+                        </ol>
+                      </div>
+                      
                       <div className="mt-2 flex items-start space-x-1">
                         <AlertCircle className="h-3.5 w-3.5 text-orange-700 dark:text-orange-300 mt-0.5 flex-shrink-0" />
                         <p>Always copy directly from BotFather without adding any extra characters, spaces or line breaks. Invalid tokens will be automatically rejected.</p>
@@ -602,19 +788,41 @@ export default function TelegramSettingsPage() {
                       Choose which Telegram chats you want to monitor for sentiment analysis
                     </CardDescription>
                   </div>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="ml-auto" 
-                    onClick={() => refreshChatsMutation.mutate()}
-                    disabled={isRefreshingChats || !botSettings?.isActive}
-                  >
-                    {isRefreshingChats ? (
-                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Refreshing</>
-                    ) : (
-                      <><RefreshCw className="mr-2 h-4 w-4" /> Refresh Chats</>
-                    )}
-                  </Button>
+                  <div className="flex space-x-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => checkAllChatsMutation.mutate()}
+                      disabled={checkAllChatsMutation.isPending || !botSettings?.isActive || monitoredChats.length === 0}
+                      title="Check all chat statuses at once"
+                    >
+                      {checkAllChatsMutation.isPending ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking Status</>
+                      ) : (
+                        <><Shield className="mr-2 h-4 w-4" /> Check All Status</>
+                      )}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => refreshChatsMutation.mutate()}
+                      disabled={isRefreshingChats || !botSettings?.isActive}
+                    >
+                      {isRefreshingChats ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Refreshing</>
+                      ) : (
+                        <><RefreshCw className="mr-2 h-4 w-4" /> Refresh Chats</>
+                      )}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setIsAddChatDialogOpen(true)}
+                      disabled={!botSettings?.isActive}
+                    >
+                      <PlusCircle className="mr-2 h-4 w-4" /> Add Chat Manually
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {chatsLoading || isRefreshingChats ? (
@@ -645,35 +853,98 @@ export default function TelegramSettingsPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {monitoredChats.map((chat: any) => (
-                        <div 
-                          key={chat.chatId} 
-                          className="flex items-center justify-between p-3 border rounded-md"
-                        >
-                          <div className="flex items-center space-x-3">
-                            <Checkbox 
-                              id={`chat-${chat.chatId}`}
-                              checked={selectedChats.includes(chat.chatId)}
-                              onCheckedChange={() => toggleChatSelection(chat.chatId)}
-                            />
-                            <div>
-                              <Label htmlFor={`chat-${chat.chatId}`} className="font-medium">
-                                {chat.title || chat.username || `Chat ${chat.chatId}`}
-                              </Label>
-                              <p className="text-xs text-muted-foreground">
-                                {chat.type.charAt(0).toUpperCase() + chat.type.slice(1)} · ID: {chat.chatId}
-                              </p>
+                      {/* Sort chats: active first, then inactive (marked by chatAccessStatus being false) */}
+                      {monitoredChats
+                        .sort((a, b) => {
+                          // First sort by access status (active chats first)
+                          const aIsInactive = chatAccessStatus[a.chatId] === false;
+                          const bIsInactive = chatAccessStatus[b.chatId] === false;
+                          
+                          if (aIsInactive && !bIsInactive) return 1; // a is inactive, b is not, so b comes first
+                          if (!aIsInactive && bIsInactive) return -1; // a is not inactive, b is, so a comes first
+                          
+                          // If equal access status, then sort by chat title/name
+                          const aName = a.title || a.username || a.chatId;
+                          const bName = b.title || b.username || b.chatId;
+                          return aName.localeCompare(bName);
+                        })
+                        .map((chat: any) => {
+                          // Determine if chat is inactive based on status check
+                          const isInactive = chatAccessStatus[chat.chatId] === false;
+                          
+                          return (
+                            <div 
+                              key={chat.chatId} 
+                              className={`flex items-center justify-between p-3 border rounded-md ${
+                                isInactive ? 'opacity-60 bg-gray-50 border-gray-200' : ''
+                              }`}
+                            >
+                              <div className="flex items-center space-x-3">
+                                <Checkbox 
+                                  id={`chat-${chat.chatId}`}
+                                  checked={selectedChats.includes(chat.chatId)}
+                                  onCheckedChange={() => toggleChatSelection(chat.chatId)}
+                                  disabled={isInactive} // Disable checkbox for inactive chats
+                                />
+                                <div>
+                                  <div className="flex items-center">
+                                    <Label 
+                                      htmlFor={`chat-${chat.chatId}`} 
+                                      className={`font-medium ${isInactive ? 'text-gray-500' : ''}`}
+                                    >
+                                      {chat.title || chat.username || `Chat ${chat.chatId}`}
+                                    </Label>
+                                    {chatAccessStatus[chat.chatId] === true && (
+                                      <Badge variant="outline" className="ml-2 bg-green-50 text-green-700 hover:bg-green-50 border-green-200">
+                                        <CheckCircle className="h-3 w-3 mr-1" />
+                                        Active
+                                      </Badge>
+                                    )}
+                                    {chatAccessStatus[chat.chatId] === false && (
+                                      <Badge variant="outline" className="ml-2 bg-red-50 text-red-700 hover:bg-red-50 border-red-200">
+                                        <XCircle className="h-3 w-3 mr-1" />
+                                        Inaccessible
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className={`text-xs ${isInactive ? 'text-gray-400' : 'text-muted-foreground'}`}>
+                                    {chat.type.charAt(0).toUpperCase() + chat.type.slice(1)} · ID: {chat.chatId}
+                                    {isInactive && ' · Bot no longer has access to this chat'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                {chat.isMonitored && !isInactive && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
+                                    Monitored
+                                  </span>
+                                )}
+                                {isInactive && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 mr-2">
+                                    Inactive
+                                  </span>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => checkChatAccessMutation.mutate(chat.chatId)}
+                                  disabled={checkingStatusChats[chat.chatId] || !botSettings?.isActive}
+                                  title="Verify if this chat is still accessible"
+                                  className="text-xs flex items-center"
+                                >
+                                  {checkingStatusChats[chat.chatId] ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <AlertCircle className="h-3 w-3 mr-1" />
+                                      Check Access
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-center">
-                            {chat.isMonitored && (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
-                                Monitored
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                          );
+                        })}
                     </div>
                   )}
                 </CardContent>
@@ -779,6 +1050,55 @@ export default function TelegramSettingsPage() {
           </Tabs>
         </div>
       </div>
+      
+      {/* Manual Chat Entry Dialog */}
+      <Dialog open={isAddChatDialogOpen} onOpenChange={setIsAddChatDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Add Telegram Chat Manually</DialogTitle>
+            <DialogDescription>
+              Enter the Telegram chat ID to add it to your monitored chats list.
+              You can find chat IDs by using a chat ID bot like @username_to_id_bot.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="manual-chat-id">Chat ID</Label>
+                <Input
+                  id="manual-chat-id"
+                  value={manualChatId}
+                  onChange={(e) => setManualChatId(e.target.value)}
+                  placeholder="Enter chat ID (e.g., -1001234567890)"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Make sure you've added the bot to this chat first.
+                  Group chat IDs usually start with -100 followed by digits.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsAddChatDialogOpen(false)}
+              disabled={isAddingChat}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddChat}
+              disabled={!manualChatId || isAddingChat}
+            >
+              {isAddingChat ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding Chat</>
+              ) : (
+                <>Add Chat</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
