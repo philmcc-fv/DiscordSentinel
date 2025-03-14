@@ -353,8 +353,25 @@ class TelegramAPI {
    */
   async getChats(): Promise<TelegramBot.Chat[]> {
     if (!this.isReady() || !this.bot) {
-      log('Cannot get chats through API, attempting to continue with bot initialization', 'debug');
-      // We'll try to continue with the stored chats at least
+      log('Cannot get chats through API, attempting to initialize the bot first', 'debug');
+      // Try to get the token and initialize
+      try {
+        const settings = await storage.getTelegramBotSettings();
+        if (settings && settings.token) {
+          await this.initialize(settings.token);
+        } else {
+          log('No token available to initialize Telegram bot', 'warn');
+          return [];
+        }
+      } catch (initError) {
+        log(`Failed to initialize Telegram bot during getChats: ${initError instanceof Error ? initError.message : String(initError)}`, 'error');
+        return [];
+      }
+    }
+    
+    if (!this.bot) {
+      log('Bot initialization failed, returning only stored chats', 'warn');
+      return [];
     }
 
     try {
@@ -391,57 +408,103 @@ class TelegramAPI {
         log(`Found ${inaccessibleChatIds.length} inaccessible chats that will be marked for removal`, 'info');
       }
       
-      // Now also try to discover new chats by using getUpdates
+      // Now try multiple approaches to discover new chats
+      
+      // 1. First approach: Using getUpdates to discover chats from recent messages
       try {
-        if (this.bot) {
-          log('Attempting to discover new chats via getUpdates...', 'debug');
-          
-          // Get recent updates to find new chats
-          const updates = await this.bot.getUpdates({ limit: 100, timeout: 0 });
-          const newChats: Record<string, TelegramBot.Chat> = {};
-          
-          // Extract all unique chats from updates
-          for (const update of updates) {
-            if (update.message && update.message.chat) {
-              const chatId = String(update.message.chat.id);
-              
-              // Only process chats we haven't already processed
-              if (!processedChatIds.has(chatId) && !newChats[chatId]) {
-                try {
-                  // Get complete chat info for this chat
-                  const chatDetail = await this.bot.getChat(chatId);
-                  if (chatDetail) {
-                    newChats[chatId] = chatDetail;
-                    
-                    // Save this new chat to the database
-                    const chatExists = await storage.getTelegramChat(chatId);
-                    if (!chatExists) {
-                      await storage.createTelegramChat({
-                        chatId: chatId,
-                        type: chatDetail.type,
-                        title: chatDetail.title || '',
-                        username: chatDetail.username || '',
-                      });
-                      log(`Discovered and added new Telegram chat: ${chatDetail.title || chatDetail.username || chatId}`, 'info');
-                    }
-                  }
-                } catch (newChatError) {
-                  log(`Error getting detail for new chat ${chatId}: ${newChatError instanceof Error ? newChatError.message : String(newChatError)}`, 'debug');
+        log('Approach 1: Discovering chats via getUpdates...', 'debug');
+        
+        // Get recent updates to find new chats
+        const updates = await this.bot.getUpdates({ 
+          limit: 100,
+          timeout: 1, // Use short timeout for better performance
+          allowed_updates: ['message', 'my_chat_member', 'channel_post'] // Limit to relevant updates
+        });
+        
+        if (updates.length > 0) {
+          log(`Found ${updates.length} updates to process for chat discovery`, 'debug');
+        }
+        
+        const newChats: Record<string, TelegramBot.Chat> = {};
+        
+        // Extract all unique chats from updates
+        for (const update of updates) {
+          // Check message updates
+          if (update.message && update.message.chat) {
+            const chatId = String(update.message.chat.id);
+            
+            // Only process chats we haven't already processed
+            if (!processedChatIds.has(chatId) && !newChats[chatId]) {
+              try {
+                // Get complete chat info for this chat
+                const chatDetail = await this.bot.getChat(chatId);
+                if (chatDetail) {
+                  newChats[chatId] = chatDetail;
+                  processedChatIds.add(chatId);
                 }
+              } catch (newChatError) {
+                log(`Error getting detail for new chat ${chatId}: ${newChatError instanceof Error ? newChatError.message : String(newChatError)}`, 'debug');
               }
             }
           }
           
-          // Add newly discovered chats to the result
-          Object.values(newChats).forEach(chat => {
-            chatDetails.push(chat);
-          });
+          // Check chat member update events
+          if (update.my_chat_member && update.my_chat_member.chat) {
+            const chatId = String(update.my_chat_member.chat.id);
+            
+            if (!processedChatIds.has(chatId) && !newChats[chatId]) {
+              try {
+                const chatDetail = await this.bot.getChat(chatId);
+                if (chatDetail) {
+                  newChats[chatId] = chatDetail;
+                  processedChatIds.add(chatId);
+                }
+              } catch (chatError) {
+                log(`Error getting chat info from member update for ${chatId}: ${chatError instanceof Error ? chatError.message : String(chatError)}`, 'debug');
+              }
+            }
+          }
           
-          log(`Total chats after discovery: ${chatDetails.length} (${Object.keys(newChats).length} newly discovered)`, 'debug');
+          // Check channel posts
+          if (update.channel_post && update.channel_post.chat) {
+            const chatId = String(update.channel_post.chat.id);
+            
+            if (!processedChatIds.has(chatId) && !newChats[chatId]) {
+              try {
+                const chatDetail = await this.bot.getChat(chatId);
+                if (chatDetail) {
+                  newChats[chatId] = chatDetail;
+                  processedChatIds.add(chatId);
+                }
+              } catch (chatError) {
+                log(`Error getting chat info from channel post for ${chatId}: ${chatError instanceof Error ? chatError.message : String(chatError)}`, 'debug');
+              }
+            }
+          }
         }
+        
+        // Save newly discovered chats to database and add to return list
+        for (const [chatId, chatDetail] of Object.entries(newChats)) {
+          // Save this new chat to the database
+          const chatExists = await storage.getTelegramChat(chatId);
+          if (!chatExists) {
+            await storage.createTelegramChat({
+              chatId: chatId,
+              type: chatDetail.type,
+              title: chatDetail.title || '',
+              username: chatDetail.username || '',
+            });
+            log(`Discovered and added new Telegram chat: ${chatDetail.title || chatDetail.username || chatId}`, 'info');
+          }
+          
+          // Add to result set
+          chatDetails.push(chatDetail);
+        }
+        
+        log(`Total chats after discovery: ${chatDetails.length} (${Object.keys(newChats).length} newly discovered)`, 'debug');
       } catch (discoveryError) {
         // Don't fail the whole operation if discovery fails
-        log(`Error during chat discovery: ${discoveryError instanceof Error ? discoveryError.message : String(discoveryError)}`, 'warn');
+        log(`Error during chat discovery via getUpdates: ${discoveryError instanceof Error ? discoveryError.message : String(discoveryError)}`, 'warn');
       }
       
       return chatDetails;
@@ -538,15 +601,59 @@ class TelegramAPI {
     active: number;
     inactive: number;
     errored: number;
+    newlyDiscovered: number;
   }> {
     const result = {
       total: 0,
       active: 0,
       inactive: 0,
-      errored: 0
+      errored: 0,
+      newlyDiscovered: 0
     };
     
     try {
+      // First make sure the bot is initialized
+      if (!this.isReady() || !this.bot) {
+        try {
+          const settings = await storage.getTelegramBotSettings();
+          if (settings && settings.token) {
+            await this.initialize(settings.token);
+          } else {
+            log('No token available to initialize Telegram bot for status check', 'warn');
+            return result;
+          }
+        } catch (initError) {
+          log(`Failed to initialize Telegram bot during status check: ${initError instanceof Error ? initError.message : String(initError)}`, 'error');
+          return result;
+        }
+      }
+      
+      if (!this.bot) {
+        log('Bot initialization failed for status check', 'error');
+        return result;
+      }
+      
+      // First try to discover new chats
+      try {
+        log('Attempting to discover new chats before status check...', 'debug');
+        const chats = await this.getChats();
+        log(`Retrieved ${chats.length} chats during discovery phase`, 'debug');
+        
+        // Count newly discovered chats
+        const existingChatIds = new Set<string>();
+        const storedChats = await storage.getTelegramChats();
+        storedChats.forEach(chat => existingChatIds.add(chat.chatId));
+        
+        for (const chat of chats) {
+          const chatId = String(chat.id);
+          if (!existingChatIds.has(chatId)) {
+            result.newlyDiscovered++;
+          }
+        }
+      } catch (discoveryError) {
+        log(`Error during chat discovery phase: ${discoveryError instanceof Error ? discoveryError.message : String(discoveryError)}`, 'warn');
+      }
+      
       // Get all monitored chats
       const monitoredChatIds = await storage.getMonitoredTelegramChats();
       result.total = monitoredChatIds.length;
@@ -558,7 +665,7 @@ class TelegramAPI {
       
       log(`Checking status of ${monitoredChatIds.length} Telegram chats`, 'info');
       
-      // Check each chat
+      // Check each chat with slight delay to avoid rate limiting
       for (const chatId of monitoredChatIds) {
         try {
           const { isActive } = await this.isChatActive(chatId);
@@ -567,13 +674,16 @@ class TelegramAPI {
           } else {
             result.inactive++;
           }
+          
+          // Small delay to avoid overwhelming the API
+          await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error) {
           log(`Error checking status of chat ${chatId}: ${error instanceof Error ? error.message : String(error)}`, 'error');
           result.errored++;
         }
       }
       
-      log(`Telegram chat status check complete: ${result.active} active, ${result.inactive} inactive, ${result.errored} errored`, 'info');
+      log(`Telegram chat status check complete: ${result.active} active, ${result.inactive} inactive, ${result.errored} errored, ${result.newlyDiscovered} newly discovered`, 'info');
       return result;
     } catch (error) {
       log(`Error updating all chat statuses: ${error instanceof Error ? error.message : String(error)}`, 'error');

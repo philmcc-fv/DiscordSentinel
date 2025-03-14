@@ -1238,6 +1238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Initialize the Telegram bot if needed
       if (!telegramAPI.isReady()) {
+        log('Initializing Telegram bot for status check', 'debug');
         const initialized = await telegramAPI.initialize(settings.token);
         if (!initialized) {
           return res.status(500).json({
@@ -1247,12 +1248,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Perform a refresh of live chats first to discover new ones
+      log('Refreshing live chats before status check', 'debug');
+      await telegramAPI.getChats();
+      
       // Update all chat statuses
+      log('Updating all chat statuses', 'debug');
       const result = await telegramAPI.updateAllChatStatuses();
+      
+      // If we found new chats, refresh the monitored chats list
+      if (result.newlyDiscovered > 0) {
+        log(`Found ${result.newlyDiscovered} new chats, refreshing chat list`, 'info');
+        await storage.getTelegramChats(); // Force refresh
+      }
+      
+      // Build a helpful message based on results
+      let resultMessage = `Successfully checked ${result.total} chat statuses`;
+      if (result.newlyDiscovered > 0) {
+        resultMessage += ` and discovered ${result.newlyDiscovered} new chats`;
+      }
+      
+      if (result.inactive > 0) {
+        resultMessage += `. ${result.inactive} chats are no longer accessible`;
+      }
       
       return res.json({
         success: true,
-        message: `Successfully checked ${result.total} chat statuses`,
+        message: resultMessage,
         data: result
       });
     } catch (error) {
