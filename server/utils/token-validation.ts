@@ -31,33 +31,18 @@ export function validateTelegramToken(token: string): {
     };
   }
 
+  // More lenient validation - just make sure it has a number part, a colon, and some characters after
+  const basicFormat = /^\d+:[A-Za-z0-9_-]+/;
+  if (!basicFormat.test(trimmedToken)) {
+    return {
+      isValid: false,
+      message: "Invalid token format. Token must start with digits followed by a colon and alphanumeric characters."
+    };
+  }
+
   // Remove any non-printable or problematic characters
   // Only allow digits, letters, colons, underscores, and hyphens which are valid in a Telegram bot token
   const cleanedToken = trimmedToken.replace(/[^\d:A-Za-z0-9_-]/g, '');
-  
-  if (cleanedToken !== trimmedToken) {
-    // If we had to clean the token, warn the user but still return it if valid
-    if (cleanedToken.match(/^\d+:[A-Za-z0-9_-]+$/)) {
-      return {
-        isValid: true,
-        cleanedToken,
-        message: "Token contained invalid characters that were removed."
-      };
-    } else {
-      return {
-        isValid: false,
-        message: "Token contains invalid characters and doesn't match the expected format: numbers, colon, then letters/numbers/symbols."
-      };
-    }
-  }
-  
-  // Final validation check
-  if (!cleanedToken.match(/^\d+:[A-Za-z0-9_-]+$/)) {
-    return {
-      isValid: false,
-      message: "Token doesn't match the expected format: numbers, colon, then letters/numbers/symbols."
-    };
-  }
   
   // Check if token has a reasonable length
   if (cleanedToken.length < 15) { // Typically tokens are longer, this is a minimum check
