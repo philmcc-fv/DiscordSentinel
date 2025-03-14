@@ -130,14 +130,27 @@ export default function TelegramSettingsPage() {
       const res = await apiRequest("GET", "/api/telegram-chats/live");
       return await res.json();
     },
-    onSuccess: () => {
+    onSuccess: async (data) => {
       toast({
         title: "Chats refreshed",
         description: "Updated chat list with the latest available Telegram chats.",
       });
       // Refresh all chat-related queries
-      queryClient.invalidateQueries({ queryKey: ["/api/telegram-chats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/monitored-telegram-chats"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/telegram-chats"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/monitored-telegram-chats"] });
+      
+      // After refreshing the chat list, automatically check their status
+      // This ensures we have up-to-date access information
+      if (botSettings?.isActive) {
+        try {
+          // Small delay to ensure the list is fully refreshed
+          setTimeout(() => {
+            checkAllChatsMutation.mutate();
+          }, 500);
+        } catch (err) {
+          console.error("Error checking chat status after refresh:", err);
+        }
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -840,66 +853,98 @@ export default function TelegramSettingsPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {monitoredChats.map((chat: any) => (
-                        <div 
-                          key={chat.chatId} 
-                          className="flex items-center justify-between p-3 border rounded-md"
-                        >
-                          <div className="flex items-center space-x-3">
-                            <Checkbox 
-                              id={`chat-${chat.chatId}`}
-                              checked={selectedChats.includes(chat.chatId)}
-                              onCheckedChange={() => toggleChatSelection(chat.chatId)}
-                            />
-                            <div>
-                              <div className="flex items-center">
-                                <Label htmlFor={`chat-${chat.chatId}`} className="font-medium">
-                                  {chat.title || chat.username || `Chat ${chat.chatId}`}
-                                </Label>
-                                {chatAccessStatus[chat.chatId] === true && (
-                                  <Badge variant="outline" className="ml-2 bg-green-50 text-green-700 hover:bg-green-50 border-green-200">
-                                    <CheckCircle className="h-3 w-3 mr-1" />
-                                    Active
-                                  </Badge>
-                                )}
-                                {chatAccessStatus[chat.chatId] === false && (
-                                  <Badge variant="outline" className="ml-2 bg-red-50 text-red-700 hover:bg-red-50 border-red-200">
-                                    <XCircle className="h-3 w-3 mr-1" />
-                                    Removed
-                                  </Badge>
-                                )}
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                {chat.type.charAt(0).toUpperCase() + chat.type.slice(1)} · ID: {chat.chatId}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            {chat.isMonitored && (
-                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
-                                Monitored
-                              </span>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => checkChatAccessMutation.mutate(chat.chatId)}
-                              disabled={checkingStatusChats[chat.chatId] || !botSettings?.isActive}
-                              title="Verify if this chat is still accessible"
-                              className="text-xs flex items-center"
+                      {/* Sort chats: active first, then inactive (marked by chatAccessStatus being false) */}
+                      {monitoredChats
+                        .sort((a, b) => {
+                          // First sort by access status (active chats first)
+                          const aIsInactive = chatAccessStatus[a.chatId] === false;
+                          const bIsInactive = chatAccessStatus[b.chatId] === false;
+                          
+                          if (aIsInactive && !bIsInactive) return 1; // a is inactive, b is not, so b comes first
+                          if (!aIsInactive && bIsInactive) return -1; // a is not inactive, b is, so a comes first
+                          
+                          // If equal access status, then sort by chat title/name
+                          const aName = a.title || a.username || a.chatId;
+                          const bName = b.title || b.username || b.chatId;
+                          return aName.localeCompare(bName);
+                        })
+                        .map((chat: any) => {
+                          // Determine if chat is inactive based on status check
+                          const isInactive = chatAccessStatus[chat.chatId] === false;
+                          
+                          return (
+                            <div 
+                              key={chat.chatId} 
+                              className={`flex items-center justify-between p-3 border rounded-md ${
+                                isInactive ? 'opacity-60 bg-gray-50 border-gray-200' : ''
+                              }`}
                             >
-                              {checkingStatusChats[chat.chatId] ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <>
-                                  <AlertCircle className="h-3 w-3 mr-1" />
-                                  Check Access
-                                </>
-                              )}
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
+                              <div className="flex items-center space-x-3">
+                                <Checkbox 
+                                  id={`chat-${chat.chatId}`}
+                                  checked={selectedChats.includes(chat.chatId)}
+                                  onCheckedChange={() => toggleChatSelection(chat.chatId)}
+                                  disabled={isInactive} // Disable checkbox for inactive chats
+                                />
+                                <div>
+                                  <div className="flex items-center">
+                                    <Label 
+                                      htmlFor={`chat-${chat.chatId}`} 
+                                      className={`font-medium ${isInactive ? 'text-gray-500' : ''}`}
+                                    >
+                                      {chat.title || chat.username || `Chat ${chat.chatId}`}
+                                    </Label>
+                                    {chatAccessStatus[chat.chatId] === true && (
+                                      <Badge variant="outline" className="ml-2 bg-green-50 text-green-700 hover:bg-green-50 border-green-200">
+                                        <CheckCircle className="h-3 w-3 mr-1" />
+                                        Active
+                                      </Badge>
+                                    )}
+                                    {chatAccessStatus[chat.chatId] === false && (
+                                      <Badge variant="outline" className="ml-2 bg-red-50 text-red-700 hover:bg-red-50 border-red-200">
+                                        <XCircle className="h-3 w-3 mr-1" />
+                                        Inaccessible
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className={`text-xs ${isInactive ? 'text-gray-400' : 'text-muted-foreground'}`}>
+                                    {chat.type.charAt(0).toUpperCase() + chat.type.slice(1)} · ID: {chat.chatId}
+                                    {isInactive && ' · Bot no longer has access to this chat'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center space-x-2">
+                                {chat.isMonitored && !isInactive && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
+                                    Monitored
+                                  </span>
+                                )}
+                                {isInactive && (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 mr-2">
+                                    Inactive
+                                  </span>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => checkChatAccessMutation.mutate(chat.chatId)}
+                                  disabled={checkingStatusChats[chat.chatId] || !botSettings?.isActive}
+                                  title="Verify if this chat is still accessible"
+                                  className="text-xs flex items-center"
+                                >
+                                  {checkingStatusChats[chat.chatId] ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <AlertCircle className="h-3 w-3 mr-1" />
+                                      Check Access
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })}
                     </div>
                   )}
                 </CardContent>
