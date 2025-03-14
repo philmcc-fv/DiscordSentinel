@@ -14,6 +14,7 @@ import * as TelegramBot from 'node-telegram-bot-api';
 import * as fs from 'fs';
 import * as path from 'path';
 import { validateTelegramToken, validateDiscordToken } from './utils/token-validation';
+import { db, sql } from './db';
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1103,12 +1104,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Then get the current chats
           liveChats = await telegramAPI.getChats();
           log(`Retrieved ${liveChats.length} live Telegram chats`, 'debug');
+          
+          // If the bot is active and we have live chats, identify and remove chats that are no longer accessible
+          if (liveChats.length > 0) {
+            // Get all chat IDs from the live API
+            const liveChatIds = liveChats.map(chat => String(chat.id));
+            
+            // Find stored chats that are no longer accessible
+            const missingChats = storedChats.filter(storedChat => 
+              !liveChatIds.includes(storedChat.chatId)
+            );
+            
+            // Remove chats that are no longer accessible
+            for (const missingChat of missingChats) {
+              log(`Removing Telegram chat that is no longer accessible: ${missingChat.title || missingChat.username || missingChat.chatId}`, 'info');
+              try {
+                // Delete from monitored chats first (if monitored)
+                const isMonitored = await storage.isTelegramChatMonitored(missingChat.chatId);
+                if (isMonitored) {
+                  await storage.setTelegramChatMonitored(missingChat.chatId, false);
+                  log(`Removed ${missingChat.chatId} from monitored Telegram chats`);
+                }
+                
+                // Delete the chat entry with SQL - we need to use execute_sql since storage doesn't have a delete method
+                await db.execute(sql`DELETE FROM telegram_chats WHERE chat_id = ${missingChat.chatId}`);
+                log(`Deleted Telegram chat: ${missingChat.chatId}`);
+              } catch (deleteError) {
+                log(`Error removing inaccessible Telegram chat ${missingChat.chatId}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`, 'error');
+              }
+            }
+          }
         } catch (botError) {
           log(`Error getting live Telegram chats: ${botError instanceof Error ? botError.message : String(botError)}`, 'error');
         }
       }
       
-      // Process each stored chat to ensure it's in the database
+      // Process each live chat to ensure it's in the database
       for (const liveChat of liveChats) {
         const chatId = String(liveChat.id);
         const existingChat = storedChats.find(c => c.chatId === chatId);
