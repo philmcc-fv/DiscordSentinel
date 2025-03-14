@@ -20,55 +20,83 @@ export function validateTelegramToken(token: string): {
     };
   }
 
-  // First, remove any whitespace that might have been copied
-  const trimmedToken = token.trim();
+  // First, perform aggressive cleaning of the token to handle database storage issues
+  // Remove all whitespace, control characters and non-printable characters
+  let cleanToken = token.replace(/\s+/g, '').replace(/[^\x20-\x7E]/g, '');
   
   // Check if token has the basic required format (numbers, colon, then alphanumeric)
-  if (!trimmedToken.includes(':')) {
-    return {
-      isValid: false,
-      message: "Invalid token format. Token must contain a colon separating the bot ID and secret."
-    };
+  if (!cleanToken.includes(':')) {
+    // Try to find patterns that might suggest a corrupted token
+    const numericPart = cleanToken.match(/^\d+/);
+    const alphaNumericPart = cleanToken.match(/[A-Za-z0-9_-]{30,}$/);
+    
+    if (numericPart && alphaNumericPart && numericPart[0].length >= 8) {
+      // This looks like it might be a corrupted token with parts but missing colon
+      // Try to reconstruct it
+      const botId = numericPart[0];
+      const secret = alphaNumericPart[0];
+      cleanToken = `${botId}:${secret}`;
+    } else {
+      return {
+        isValid: false,
+        message: "Invalid token format. Token must contain a colon separating the bot ID and secret."
+      };
+    }
   }
 
   // Standard Telegram token format: "123456789:ABCDefgh-ijKLmnoPQRst_uvwxyz"
   // Split token by colon to validate each part separately
-  const parts = trimmedToken.split(':');
+  const parts = cleanToken.split(':');
   
   if (parts.length !== 2) {
-    return {
-      isValid: false,
-      message: "Invalid token format. Token must have exactly one colon separating the bot ID and secret."
-    };
+    // Try to reconstruct with only the first colon if multiple exist
+    const firstColonIndex = cleanToken.indexOf(':');
+    const botId = cleanToken.substring(0, firstColonIndex);
+    const secret = cleanToken.substring(firstColonIndex + 1).replace(/:/g, '');
+    
+    if (botId && secret) {
+      cleanToken = `${botId}:${secret}`;
+      parts[0] = botId;
+      parts[1] = secret;
+    } else {
+      return {
+        isValid: false,
+        message: "Invalid token format. Token must have exactly one colon separating the bot ID and secret."
+      };
+    }
   }
   
   const [botId, secret] = parts;
   
-  // Bot ID should contain only numbers
-  if (!/^\d+$/.test(botId)) {
+  // Clean the botId to ensure it only contains numbers
+  const cleanedBotId = botId.replace(/\D/g, '');
+  
+  if (cleanedBotId.length === 0) {
     return {
       isValid: false,
-      message: "Invalid token format. Bot ID part (before colon) must contain only digits."
+      message: "Invalid token format. Bot ID part (before colon) must contain digits."
     };
   }
   
-  // Secret part should contain only allowed characters
-  if (!/^[A-Za-z0-9_-]+$/.test(secret)) {
+  // Clean the secret to ensure it only contains allowed characters
+  const cleanedSecret = secret.replace(/[^A-Za-z0-9_-]/g, '');
+  
+  if (cleanedSecret.length === 0) {
     return {
       isValid: false,
-      message: "Invalid token format. Secret part (after colon) must contain only letters, numbers, hyphens, and underscores."
+      message: "Invalid token format. Secret part (after colon) is invalid."
     };
   }
 
   // Check minimum lengths for each part
-  if (botId.length < 8) {
+  if (cleanedBotId.length < 8) {
     return {
       isValid: false,
       message: "Invalid token format. Bot ID part appears too short (should be at least 8 digits)."
     };
   }
   
-  if (secret.length < 30) {
+  if (cleanedSecret.length < 30) {
     return {
       isValid: false,
       message: "Invalid token format. Secret part appears too short (should be at least 30 characters)."
@@ -76,7 +104,7 @@ export function validateTelegramToken(token: string): {
   }
   
   // This is a cleaned token with proper format
-  const cleanedToken = `${botId}:${secret}`;
+  const cleanedToken = `${cleanedBotId}:${cleanedSecret}`;
   
   return {
     isValid: true,

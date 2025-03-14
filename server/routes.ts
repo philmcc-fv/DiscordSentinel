@@ -1475,19 +1475,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Validate token if provided
       if (req.body.token) {
-        // Use the centralized token validation utility
-        const validation = validateTelegramToken(req.body.token);
-        
-        if (!validation.isValid) {
-          return res.status(400).json({ 
-            success: false,
-            message: `Invalid token format. ${validation.message}`
-          });
-        }
-        
-        // If the token was cleaned, use the cleaned version
-        if (validation.cleanedToken && validation.cleanedToken !== req.body.token) {
-          log(`Token was cleaned: ${validation.message}`, 'debug');
+        // Skip validation for masked tokens
+        if (req.body.token === "••••••••••••••••••••••••••") {
+          // User didn't change the token, keep the previous one
+          log('User kept the existing token, not updating it', 'debug');
+          
+          if (previousToken) {
+            req.body.token = previousToken;
+          } else {
+            // This shouldn't happen but handle it gracefully
+            return res.status(400).json({ 
+              success: false,
+              message: `Cannot use masked token placeholder. Please enter a real token.`
+            });
+          }
+        } else {
+          // Aggressively sanitize the token before validation
+          const sanitizedToken = req.body.token.replace(/\s+/g, '').replace(/[^\x20-\x7E]/g, '');
+          
+          // Use the centralized token validation utility
+          const validation = validateTelegramToken(sanitizedToken);
+          
+          if (!validation.isValid) {
+            return res.status(400).json({ 
+              success: false,
+              message: `Invalid token format. ${validation.message}`
+            });
+          }
+          
+          // Always use the cleaned token from validation
+          log(`Using cleaned and validated token for storage`, 'debug');
           req.body.token = validation.cleanedToken;
         }
       }
@@ -1601,8 +1618,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       log('Testing Telegram bot connection with token');
       
+      // Aggressively sanitize the token before validation
+      // This is especially useful for tokens copied from websites with invisible characters
+      const sanitizedToken = token.replace(/\s+/g, '').replace(/[^\x20-\x7E]/g, '');
+      
       // Validate token format first
-      const tokenValidation = validateTelegramToken(token);
+      const tokenValidation = validateTelegramToken(sanitizedToken);
       if (!tokenValidation.isValid) {
         return res.status(400).json({
           success: false,
@@ -1611,7 +1632,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Use the cleaned token from validation if available
-      const cleanedToken = tokenValidation.cleanedToken || token.trim();
+      const cleanedToken = tokenValidation.cleanedToken || sanitizedToken;
       
       // Create a temporary bot for testing without polling
       try {
@@ -1623,6 +1644,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Clean up resources
         testBot.removeAllListeners();
+        
+        // If we get here, it means the connection was successful
+        // Let's log the cleaned token format that worked for debugging purposes
+        log(`Successfully connected to Telegram bot @${botInfo.username}`);
         
         return res.json({
           success: true,
