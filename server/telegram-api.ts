@@ -353,8 +353,8 @@ class TelegramAPI {
    */
   async getChats(): Promise<TelegramBot.Chat[]> {
     if (!this.isReady() || !this.bot) {
-      log('Cannot get chats, Telegram bot not initialized', 'error');
-      return [];
+      log('Cannot get chats through API, attempting to continue with bot initialization', 'debug');
+      // We'll try to continue with the stored chats at least
     }
 
     try {

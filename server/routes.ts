@@ -1115,64 +1115,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (settings && settings.token) {
         const isActive = (settings as any).is_active === true || (settings as any).is_active === 't';
         
-        if (isActive) {
-          // Get live chat information if the bot is active
-          try {
-            log('Telegram bot is active, attempting to fetch live chats...', 'debug');
-            
-            // First force a clean restart of the bot to avoid polling conflicts
-            if (telegramAPI.isReady()) {
-              log('Stopping existing Telegram bot before getting new chats', 'debug');
-              await telegramAPI.initialize(settings.token, true); // Force reinitialization
-            } else {
-              // Just initialize if not already running
-              await telegramAPI.initialize(settings.token);
-            }
-            
-            // Then get the current chats
-            liveChats = await telegramAPI.getChats();
-            log(`Retrieved ${liveChats.length} live Telegram chats`, 'debug');
-            
-            // If the bot is active and we have live chats, identify and remove chats that are no longer accessible
-            if (liveChats.length > 0) {
-              // Get all chat IDs from the live API
-              const liveChatIds = liveChats.map(chat => String(chat.id));
-              
-              // Find stored chats that are no longer accessible
-              const missingChats = storedChats.filter(storedChat => 
-                !liveChatIds.includes(storedChat.chatId)
-              );
-              
-              if (missingChats.length > 0) {
-                log(`Found ${missingChats.length} Telegram chats that are no longer accessible`, 'info');
-              
-                // Remove chats that are no longer accessible
-                for (const missingChat of missingChats) {
-                  log(`Removing Telegram chat that is no longer accessible: ${missingChat.title || missingChat.username || missingChat.chatId}`, 'info');
-                  try {
-                    // Delete from monitored chats first (if monitored)
-                    const isMonitored = await storage.isTelegramChatMonitored(missingChat.chatId);
-                    if (isMonitored) {
-                      await storage.setTelegramChatMonitored(missingChat.chatId, false);
-                      log(`Removed ${missingChat.chatId} from monitored Telegram chats`);
-                    }
-                    
-                    // Delete the chat entry with raw SQL
-                    await sql`DELETE FROM telegram_chats WHERE chat_id = ${missingChat.chatId}`;
-                    log(`Deleted Telegram chat: ${missingChat.chatId}`);
-                  } catch (deleteError) {
-                    log(`Error removing inaccessible Telegram chat ${missingChat.chatId}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`, 'error');
-                  }
-                }
-              } else {
-                log('All stored Telegram chats are still accessible', 'debug');
-              }
-            }
-          } catch (botError) {
-            log(`Error getting live Telegram chats: ${botError instanceof Error ? botError.message : String(botError)}`, 'error');
+        try {
+          log('Attempting to fetch live Telegram chats...', 'debug');
+          
+          // Try to initialize the bot if not ready
+          if (!telegramAPI.isReady()) {
+            log('Initializing Telegram bot to fetch chats', 'debug');
+            await telegramAPI.initialize(settings.token);
           }
-        } else {
-          log('Telegram bot is not active, using only stored chats', 'debug');
+          
+          // Get the current chats
+          liveChats = await telegramAPI.getChats();
+          log(`Retrieved ${liveChats.length} live Telegram chats`, 'debug');
+          
+          // If we've successfully connected, update the is_active status to true
+          if (!isActive && telegramAPI.isReady()) {
+            log('Updating Telegram bot status to active', 'info');
+            await storage.createOrUpdateTelegramBotSettings({
+              ...settings,
+              isActive: true
+            });
+          }
+          
+          // Identify and remove chats that are no longer accessible
+          if (liveChats.length > 0) {
+            const liveChatIds = liveChats.map(chat => String(chat.id));
+            
+            // Find stored chats that are no longer accessible
+            const missingChats = storedChats.filter(storedChat => 
+              !liveChatIds.includes(storedChat.chatId)
+            );
+            
+            if (missingChats.length > 0) {
+              log(`Found ${missingChats.length} Telegram chats that are no longer accessible`, 'info');
+            
+              // Remove chats that are no longer accessible
+              for (const missingChat of missingChats) {
+                log(`Removing Telegram chat that is no longer accessible: ${missingChat.title || missingChat.username || missingChat.chatId}`, 'info');
+                try {
+                  // Delete from monitored chats first (if monitored)
+                  const isMonitored = await storage.isTelegramChatMonitored(missingChat.chatId);
+                  if (isMonitored) {
+                    await storage.setTelegramChatMonitored(missingChat.chatId, false);
+                    log(`Removed ${missingChat.chatId} from monitored Telegram chats`);
+                  }
+                  
+                  // Delete the chat entry with raw SQL
+                  await sql`DELETE FROM telegram_chats WHERE chat_id = ${missingChat.chatId}`;
+                  log(`Deleted Telegram chat: ${missingChat.chatId}`);
+                } catch (deleteError) {
+                  log(`Error removing inaccessible Telegram chat ${missingChat.chatId}: ${deleteError instanceof Error ? deleteError.message : String(deleteError)}`, 'error');
+                }
+              }
+            } else {
+              log('All stored Telegram chats are still accessible', 'debug');
+            }
+          }
+        } catch (botError) {
+          log(`Error getting live Telegram chats: ${botError instanceof Error ? botError.message : String(botError)}`, 'error');
         }
       } else {
         log('No Telegram bot settings found or token missing', 'debug');
