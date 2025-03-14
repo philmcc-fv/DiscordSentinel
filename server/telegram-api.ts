@@ -4,6 +4,7 @@ import { storage } from './storage';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import { validateTelegramToken } from './utils/token-validation';
 
 // File lock path for managing bot instances
 const LOCK_FILE_PATH = path.join(process.cwd(), 'tmp', 'telegram-bot.lock');
@@ -112,8 +113,7 @@ class TelegramAPI {
       // Stop and clean up the existing bot if there is one
       await this.stopBot();
       
-      // Validate the token using our token validation utility
-      const { validateTelegramToken } = require('./utils/token-validation');
+      // Validate the token
       const validation = validateTelegramToken(token);
       
       if (!validation.isValid) {
@@ -299,7 +299,6 @@ class TelegramAPI {
       }
       
       // Validate token using the central validation utility
-      const { validateTelegramToken } = require('./utils/token-validation');
       const validation = validateTelegramToken(token);
       
       if (!validation.isValid) {
