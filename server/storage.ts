@@ -604,6 +604,43 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return updatedChat;
   }
+  
+  /**
+   * Update the status of a Telegram chat and the last time it was checked
+   * @param chatId The chat ID to update
+   * @param isActive Whether the chat is active
+   */
+  async updateTelegramChatStatus(chatId: string, isActive: boolean): Promise<void> {
+    try {
+      // Update the Telegram chat status
+      await db
+        .update(telegramChats)
+        .set({
+          isActive,
+          lastChecked: new Date()
+        })
+        .where(eq(telegramChats.chatId, chatId));
+      
+      // Also update the monitored chat status if it exists
+      const [monitoredChat] = await db
+        .select()
+        .from(monitoredTelegramChats)
+        .where(eq(monitoredTelegramChats.chatId, chatId));
+        
+      if (monitoredChat) {
+        await db
+          .update(monitoredTelegramChats)
+          .set({
+            isActive,
+            lastChecked: new Date()
+          })
+          .where(eq(monitoredTelegramChats.chatId, chatId));
+      }
+    } catch (error) {
+      console.error(`Error updating Telegram chat status for ${chatId}:`, error);
+      throw error;
+    }
+  }
 
   // Telegram message management
   async getRecentTelegramMessages(

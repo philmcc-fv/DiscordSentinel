@@ -459,9 +459,13 @@ class TelegramAPI {
       
       // If we get a valid chat info, the bot is still a member
       if (chatInfo) {
+        // Update the lastChecked timestamp and set isActive to true
+        await storage.updateTelegramChatStatus(chatId, true);
         return { isActive: true };
       }
       
+      // Update the lastChecked timestamp and set isActive to false
+      await storage.updateTelegramChatStatus(chatId, false);
       return { 
         isActive: false, 
         message: 'Chat information unavailable' 
@@ -477,6 +481,8 @@ class TelegramAPI {
         errorMessage.includes('bot was blocked') ||
         errorMessage.includes('chat_id is empty')
       ) {
+        // Update the lastChecked timestamp and set isActive to false
+        await storage.updateTelegramChatStatus(chatId, false);
         return { 
           isActive: false, 
           message: `Bot does not have access to this chat: ${errorMessage}` 
@@ -485,10 +491,63 @@ class TelegramAPI {
       
       // For other errors, log but don't assume the bot is not a member
       log(`Error checking chat status for ${chatId}: ${errorMessage}`, 'error');
+      // Don't update the chat status for transient errors
       return { 
         isActive: false, 
         message: `Error checking chat status: ${errorMessage}` 
       };
+    }
+  }
+  
+  /**
+   * Updates the status of all monitored Telegram chats
+   * @returns A summary of checked chats
+   */
+  async updateAllChatStatuses(): Promise<{
+    total: number;
+    active: number;
+    inactive: number;
+    errored: number;
+  }> {
+    const result = {
+      total: 0,
+      active: 0,
+      inactive: 0,
+      errored: 0
+    };
+    
+    try {
+      // Get all monitored chats
+      const monitoredChatIds = await storage.getMonitoredTelegramChats();
+      result.total = monitoredChatIds.length;
+      
+      if (monitoredChatIds.length === 0) {
+        log('No monitored Telegram chats to check', 'debug');
+        return result;
+      }
+      
+      log(`Checking status of ${monitoredChatIds.length} Telegram chats`, 'info');
+      
+      // Check each chat
+      for (const chatId of monitoredChatIds) {
+        try {
+          const { isActive } = await this.isChatActive(chatId);
+          if (isActive) {
+            result.active++;
+          } else {
+            result.inactive++;
+          }
+        } catch (error) {
+          log(`Error checking status of chat ${chatId}: ${error instanceof Error ? error.message : String(error)}`, 'error');
+          result.errored++;
+        }
+      }
+      
+      log(`Telegram chat status check complete: ${result.active} active, ${result.inactive} inactive, ${result.errored} errored`, 'info');
+      return result;
+    } catch (error) {
+      log(`Error updating all chat statuses: ${error instanceof Error ? error.message : String(error)}`, 'error');
+      return result;
     }
   }
 }
