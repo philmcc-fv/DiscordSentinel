@@ -13,6 +13,7 @@ import { startTelegramBot, setupMessageListeners as setupTelegramMessageListener
 import TelegramBot from 'node-telegram-bot-api';
 import * as fs from 'fs';
 import * as path from 'path';
+import { InsertTelegramChat } from '../shared/schema';
 import { validateTelegramToken, validateDiscordToken } from './utils/token-validation';
 import { db, sql } from './db';
 
@@ -1314,7 +1315,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const chat = await storage.getTelegramChat(chatId);
         if (chat) {
           // Create a complete update with all required fields
-          const updateData: InsertTelegramChat = {
+          const updateData = {
             chatId: chat.chatId,
             type: chat.type,
             title: chat.title || "",
