@@ -374,6 +374,7 @@ class TelegramAPI {
       
       // Build list of chat details
       const chatDetails: TelegramBot.Chat[] = [];
+      const inaccessibleChatIds: string[] = [];
       
       // Fetch current information for each stored chat
       for (const chat of storedChats) {
@@ -385,9 +386,16 @@ class TelegramAPI {
             }
           }
         } catch (chatError) {
-          // Skip chats we can't access
+          // Mark chats we can't access for removal
           log(`Could not get chat details for ${chat.chatId}: ${chatError instanceof Error ? chatError.message : String(chatError)}`, 'debug');
+          inaccessibleChatIds.push(chat.chatId);
         }
+      }
+      
+      // If there are inaccessible chats, return what we have but don't remove them yet
+      // The removal should happen in the route handler to avoid modifying data during a read operation
+      if (inaccessibleChatIds.length > 0) {
+        log(`Found ${inaccessibleChatIds.length} inaccessible chats that will be marked for removal`, 'info');
       }
       
       return chatDetails;
