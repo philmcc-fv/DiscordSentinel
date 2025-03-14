@@ -126,6 +126,7 @@ export interface IStorage {
   getTelegramChat(chatId: string): Promise<TelegramChat | undefined>;
   createTelegramChat(chat: InsertTelegramChat): Promise<TelegramChat>;
   updateTelegramChat(chat: InsertTelegramChat): Promise<TelegramChat>;
+  updateTelegramChatStatus(chatId: string, isActive: boolean): Promise<void>;
 
   // Telegram message management
   getRecentTelegramMessages(limit?: number, filters?: { sentiment?: string; chatId?: string; search?: string; }): Promise<TelegramMessage[]>;

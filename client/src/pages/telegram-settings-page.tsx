@@ -45,6 +45,32 @@ export default function TelegramSettingsPage() {
     queryKey: ["/api/monitored-telegram-chats"],
   });
   
+  // Check all chat statuses at once
+  const checkAllChatsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("GET", "/api/telegram-chats/status/check-all");
+      const data = await res.json();
+      return data;
+    },
+    onSuccess: (data: any) => {
+      toast({
+        title: "Chat Status Check Complete",
+        description: `Checked ${data.data ? data.data.total : 0} chats: ${data.data ? data.data.active : 0} active, ${data.data ? data.data.inactive : 0} inactive, ${data.data ? data.data.errored : 0} errored`,
+        variant: "default"
+      });
+      
+      // Refresh the chat list to show updated statuses
+      refetchChats();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to check chat statuses",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  });
+
   // Check if a chat is accessible
   const checkChatAccessMutation = useMutation({
     mutationFn: async (chatId: string) => {
@@ -683,12 +709,15 @@ export default function TelegramSettingsPage() {
                     <Button 
                       variant="outline" 
                       size="sm"
-                      onClick={checkAllChatsAccess}
-                      disabled={!botSettings?.isActive || monitoredChats.length === 0}
-                      title="Verify if all chats are still accessible"
+                      onClick={() => checkAllChatsMutation.mutate()}
+                      disabled={checkAllChatsMutation.isPending || !botSettings?.isActive || monitoredChats.length === 0}
+                      title="Check all chat statuses at once"
                     >
-                      <Shield className="mr-2 h-4 w-4" /> 
-                      Verify All Chats
+                      {checkAllChatsMutation.isPending ? (
+                        <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking Status</>
+                      ) : (
+                        <><Shield className="mr-2 h-4 w-4" /> Check All Status</>
+                      )}
                     </Button>
                     <Button 
                       variant="outline" 
