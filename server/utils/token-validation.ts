@@ -31,26 +31,52 @@ export function validateTelegramToken(token: string): {
     };
   }
 
-  // More lenient validation - just make sure it has a number part, a colon, and some characters after
-  const basicFormat = /^\d+:[A-Za-z0-9_-]+/;
-  if (!basicFormat.test(trimmedToken)) {
+  // Standard Telegram token format: "123456789:ABCDefgh-ijKLmnoPQRst_uvwxyz"
+  // Split token by colon to validate each part separately
+  const parts = trimmedToken.split(':');
+  
+  if (parts.length !== 2) {
     return {
       isValid: false,
-      message: "Invalid token format. Token must start with digits followed by a colon and alphanumeric characters."
+      message: "Invalid token format. Token must have exactly one colon separating the bot ID and secret."
+    };
+  }
+  
+  const [botId, secret] = parts;
+  
+  // Bot ID should contain only numbers
+  if (!/^\d+$/.test(botId)) {
+    return {
+      isValid: false,
+      message: "Invalid token format. Bot ID part (before colon) must contain only digits."
+    };
+  }
+  
+  // Secret part should contain only allowed characters
+  if (!/^[A-Za-z0-9_-]+$/.test(secret)) {
+    return {
+      isValid: false,
+      message: "Invalid token format. Secret part (after colon) must contain only letters, numbers, hyphens, and underscores."
     };
   }
 
-  // Remove any non-printable or problematic characters
-  // Only allow digits, letters, colons, underscores, and hyphens which are valid in a Telegram bot token
-  const cleanedToken = trimmedToken.replace(/[^\d:A-Za-z0-9_-]/g, '');
-  
-  // Check if token has a reasonable length
-  if (cleanedToken.length < 15) { // Typically tokens are longer, this is a minimum check
+  // Check minimum lengths for each part
+  if (botId.length < 8) {
     return {
       isValid: false,
-      message: "Token appears too short to be valid."
+      message: "Invalid token format. Bot ID part appears too short (should be at least 8 digits)."
     };
   }
+  
+  if (secret.length < 30) {
+    return {
+      isValid: false,
+      message: "Invalid token format. Secret part appears too short (should be at least 30 characters)."
+    };
+  }
+  
+  // This is a cleaned token with proper format
+  const cleanedToken = `${botId}:${secret}`;
   
   return {
     isValid: true,

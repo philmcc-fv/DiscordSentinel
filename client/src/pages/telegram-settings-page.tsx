@@ -563,10 +563,21 @@ export default function TelegramSettingsPage() {
                       <p className="mt-1">Valid format: <code className="bg-orange-100 dark:bg-orange-900 px-1 py-0.5 rounded">123456789:ABCDefgh-ijKLmnoPQRst_uvwxyz</code></p>
                       <p className="mt-1">The token must match this pattern:</p>
                       <ul className="list-disc list-inside ml-1 mt-1">
-                        <li>Start with <strong>numbers</strong> (bot ID)</li>
+                        <li>Start with <strong>numbers</strong> (bot ID, at least 8 digits)</li>
                         <li>Followed by a <strong>colon (:)</strong></li>
-                        <li>End with <strong>letters, numbers, hyphens, and/or underscores</strong> only</li>
+                        <li>End with <strong>letters, numbers, hyphens, and/or underscores</strong> only (at least 30 characters)</li>
                       </ul>
+                      
+                      <div className="mt-2 bg-orange-100 dark:bg-orange-900 p-2 rounded">
+                        <p className="font-semibold">How to get your bot token:</p>
+                        <ol className="list-decimal list-inside ml-1 mt-1">
+                          <li>Open Telegram and search for <strong>@BotFather</strong></li>
+                          <li>Send <code>/newbot</code> and follow instructions</li>
+                          <li>When complete, BotFather will send you the token</li>
+                          <li>Copy the ENTIRE token including the colon (:)</li>
+                        </ol>
+                      </div>
+                      
                       <div className="mt-2 flex items-start space-x-1">
                         <AlertCircle className="h-3.5 w-3.5 text-orange-700 dark:text-orange-300 mt-0.5 flex-shrink-0" />
                         <p>Always copy directly from BotFather without adding any extra characters, spaces or line breaks. Invalid tokens will be automatically rejected.</p>

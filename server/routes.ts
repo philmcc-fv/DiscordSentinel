@@ -1601,14 +1601,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       log('Testing Telegram bot connection with token');
       
+      // Validate token format first
+      const tokenValidation = validateTelegramToken(token);
+      if (!tokenValidation.isValid) {
+        return res.status(400).json({
+          success: false,
+          message: tokenValidation.message || "Invalid token format. Token must contain a colon separating the bot ID and secret."
+        });
+      }
+      
+      // Use the cleaned token from validation if available
+      const cleanedToken = tokenValidation.cleanedToken || token.trim();
+      
       // Create a temporary bot for testing without polling
       try {
-        // Encode any special characters in the token
-        const encodedToken = encodeURIComponent(token.trim());
-        const decodedToken = decodeURIComponent(encodedToken);
-        
-        log(`Testing connection with encoded token`, 'debug');
-        const testBot = new TelegramBot(decodedToken, { polling: false });
+        log(`Testing connection with validated token`, 'debug');
+        const testBot = new TelegramBot(cleanedToken, { polling: false });
         
         // Try to get bot info
         const botInfo = await testBot.getMe();

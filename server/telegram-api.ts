@@ -112,27 +112,19 @@ class TelegramAPI {
       // Stop and clean up the existing bot if there is one
       await this.stopBot();
       
-      // Decode the token in case it was URL encoded
-      let decodedToken;
-      try {
-        decodedToken = decodeURIComponent(token);
-        if (decodedToken !== token) {
-          log('Token was URL encoded, decoded successfully', 'debug');
-        }
-      } catch (decodeError) {
-        // If decoding fails, use the original token
-        log(`Warning: Failed to decode token, using as-is: ${decodeError instanceof Error ? decodeError.message : String(decodeError)}`, 'warn');
-        decodedToken = token;
+      // Validate the token using our token validation utility
+      const { validateTelegramToken } = require('./utils/token-validation');
+      const validation = validateTelegramToken(token);
+      
+      if (!validation.isValid) {
+        log(`Invalid Telegram token format: ${validation.message}`, 'error');
+        throw new Error(`Invalid Telegram token format: ${validation.message}`);
       }
       
-      // Validate the token format
-      if (!decodedToken.match(/^\d+:[A-Za-z0-9_-]+$/)) {
-        log('Warning: Telegram token does not match expected format. Attempting to clean...', 'warn');
-      }
+      // Use the cleaned token from validation
+      const cleanToken = validation.cleanedToken || token;
       
-      // Clean the token to remove any non-printable or problematic characters
-      // Only allow digits, letters, colons, underscores, and hyphens which are valid in a Telegram bot token
-      const cleanToken = decodedToken.replace(/[^\d:A-Za-z0-9_-]/g, '');
+      log('Telegram token validation successful', 'debug');
       
       try {
         // Generate unique options for this instance to avoid polling conflicts
@@ -306,38 +298,20 @@ class TelegramAPI {
         };
       }
       
-      // Decode the token in case it was URL encoded
-      let decodedToken;
-      try {
-        decodedToken = decodeURIComponent(token);
-        if (decodedToken !== token) {
-          log('Token was URL encoded, decoded successfully', 'debug');
-        }
-      } catch (decodeError) {
-        // If decoding fails, use the original token
-        log(`Warning: Failed to decode token, using as-is: ${decodeError instanceof Error ? decodeError.message : String(decodeError)}`, 'warn');
-        decodedToken = token;
-      }
+      // Validate token using the central validation utility
+      const { validateTelegramToken } = require('./utils/token-validation');
+      const validation = validateTelegramToken(token);
       
-      // Validate token format
-      if (!decodedToken.match(/^\d+:[A-Za-z0-9_-]+$/)) {
-        log('Warning: Telegram token does not match expected format. Attempting to clean...', 'warn');
-      }
-      
-      // Clean the token to only allow valid characters for a Telegram bot token
-      // Only digits, letters, colons, underscores, and hyphens are valid
-      const cleanToken = decodedToken.replace(/[^\d:A-Za-z0-9_-]/g, '');
-      
-      if (cleanToken !== token) {
-        log('Token was cleaned to remove invalid characters', 'debug');
-      }
-      
-      if (!cleanToken || cleanToken.length < 10) {
+      if (!validation.isValid) {
         return {
           success: false,
-          message: "Invalid token format after cleaning. Token should start with digits followed by a colon and alphanumeric characters"
+          message: validation.message || "Invalid token format. Token must contain a colon separating the bot ID and secret."
         };
       }
+      
+      // Use the cleaned token from validation
+      const cleanToken = validation.cleanedToken || token;
+      log('Telegram token validation successful', 'debug');
       
       // Create a temporary bot instance for testing (no polling)
       const testBot = new TelegramBot(cleanToken, { polling: false });
