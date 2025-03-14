@@ -7,10 +7,15 @@ import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import { Loader2, Save, RotateCw, Play, Square, HelpCircle, AlertCircle, Shield, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
+import { 
+  Loader2, Save, RotateCw, Play, Square, HelpCircle, AlertCircle, Shield, 
+  RefreshCw, ChevronDown, ChevronUp, CheckCircle, XCircle, WifiOff, Trash
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 export default function TelegramSettingsPage() {
   const { toast } = useToast();
@@ -25,6 +30,11 @@ export default function TelegramSettingsPage() {
   const [isStartingBot, setIsStartingBot] = useState(false);
   const [selectedChats, setSelectedChats] = useState<string[]>([]);
   
+  // Track chats being checked for active status
+  const [checkingStatusChats, setCheckingStatusChats] = useState<Record<string, boolean>>({});
+  // Track chat access statuses (using null for unknown status)
+  const [chatAccessStatus, setChatAccessStatus] = useState<Record<string, boolean | null>>({});
+  
   // Load bot settings
   const { data: botSettings, isLoading } = useQuery<any>({
     queryKey: ["/api/telegram-bot/settings"],
@@ -33,6 +43,54 @@ export default function TelegramSettingsPage() {
   // Load monitored chats
   const { data: monitoredChats = [], isLoading: chatsLoading, refetch: refetchChats } = useQuery<any[]>({
     queryKey: ["/api/monitored-telegram-chats"],
+  });
+  
+  // Check if a chat is accessible
+  const checkChatAccessMutation = useMutation({
+    mutationFn: async (chatId: string) => {
+      setCheckingStatusChats(prev => ({ ...prev, [chatId]: true }));
+      const res = await apiRequest("GET", `/api/telegram-chats/${chatId}/check-access`);
+      return { chatId, result: await res.json() };
+    },
+    onSuccess: (data) => {
+      const { chatId, result } = data;
+      // Update the status in our state
+      setChatAccessStatus(prev => ({ 
+        ...prev, 
+        [chatId]: result.isActive 
+      }));
+      
+      // Show toast if the chat is not accessible
+      if (!result.isActive) {
+        toast({
+          title: "Chat removed",
+          description: `Chat "${chatId}" is no longer accessible and has been removed.`,
+          variant: "destructive"
+        });
+        // Refresh chats to reflect the removed chat
+        refetchChats();
+      }
+    },
+    onError: (error: Error, variables) => {
+      toast({
+        title: "Failed to check chat access",
+        description: error.message,
+        variant: "destructive",
+      });
+      // Mark as unknown status in case of error
+      setChatAccessStatus(prev => ({ 
+        ...prev, 
+        [variables]: null 
+      }));
+    },
+    onSettled: (_, __, variables) => {
+      // Remove from checking status
+      setCheckingStatusChats(prev => {
+        const newState = { ...prev };
+        delete newState[variables];
+        return newState;
+      });
+    }
   });
   
   // Create a refreshChats mutation to use the new live chats endpoint
@@ -657,15 +715,29 @@ export default function TelegramSettingsPage() {
                               onCheckedChange={() => toggleChatSelection(chat.chatId)}
                             />
                             <div>
-                              <Label htmlFor={`chat-${chat.chatId}`} className="font-medium">
-                                {chat.title || chat.username || `Chat ${chat.chatId}`}
-                              </Label>
+                              <div className="flex items-center">
+                                <Label htmlFor={`chat-${chat.chatId}`} className="font-medium">
+                                  {chat.title || chat.username || `Chat ${chat.chatId}`}
+                                </Label>
+                                {chatAccessStatus[chat.chatId] === true && (
+                                  <Badge variant="outline" className="ml-2 bg-green-50 text-green-700 hover:bg-green-50 border-green-200">
+                                    <CheckCircle className="h-3 w-3 mr-1" />
+                                    Active
+                                  </Badge>
+                                )}
+                                {chatAccessStatus[chat.chatId] === false && (
+                                  <Badge variant="outline" className="ml-2 bg-red-50 text-red-700 hover:bg-red-50 border-red-200">
+                                    <XCircle className="h-3 w-3 mr-1" />
+                                    Removed
+                                  </Badge>
+                                )}
+                              </div>
                               <p className="text-xs text-muted-foreground">
                                 {chat.type.charAt(0).toUpperCase() + chat.type.slice(1)} · ID: {chat.chatId}
                               </p>
                             </div>
                           </div>
-                          <div className="flex items-center">
+                          <div className="flex items-center space-x-2">
                             {chat.isMonitored && (
                               <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 mr-2">
                                 Monitored
