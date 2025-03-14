@@ -125,6 +125,8 @@ export const telegramBotSettings = pgTable("telegram_bot_settings", {
 export const monitoredTelegramChats = pgTable("monitored_telegram_chats", {
   id: serial("id").primaryKey(),
   chatId: text("chat_id").notNull().unique(),
+  isActive: boolean("is_active").default(true).notNull(),
+  lastChecked: timestamp("last_checked").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -220,6 +222,8 @@ export const insertTelegramBotSettingsSchema = createInsertSchema(telegramBotSet
 
 export const insertMonitoredTelegramChatSchema = createInsertSchema(monitoredTelegramChats).pick({
   chatId: true,
+  isActive: true,
+  lastChecked: true,
 });
 
 export const insertExcludedTelegramUserSchema = createInsertSchema(excludedTelegramUsers).pick({

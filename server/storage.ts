@@ -714,7 +714,12 @@ export class DatabaseStorage implements IStorage {
     const [chat] = await db
       .select()
       .from(monitoredTelegramChats)
-      .where(eq(monitoredTelegramChats.chatId, chatId));
+      .where(
+        and(
+          eq(monitoredTelegramChats.chatId, chatId),
+          eq(monitoredTelegramChats.isActive, true)
+        )
+      );
     
     return !!chat;
   }
