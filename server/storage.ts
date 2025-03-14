@@ -733,23 +733,48 @@ export class DatabaseStorage implements IStorage {
         .where(eq(monitoredTelegramChats.chatId, chatId));
       
       if (!existing) {
+        // Create new monitored chat entry
         await db
           .insert(monitoredTelegramChats)
           .values({
-            chatId
+            chatId,
+            isActive: true,
+            lastChecked: new Date()
           });
+      } else {
+        // Update existing entry to set it as active
+        await db
+          .update(monitoredTelegramChats)
+          .set({
+            isActive: true,
+            lastChecked: new Date()
+          })
+          .where(eq(monitoredTelegramChats.chatId, chatId));
       }
     } else {
-      await db
-        .delete(monitoredTelegramChats)
+      // Instead of deleting, mark as inactive
+      const [existing] = await db
+        .select()
+        .from(monitoredTelegramChats)
         .where(eq(monitoredTelegramChats.chatId, chatId));
+        
+      if (existing) {
+        await db
+          .update(monitoredTelegramChats)
+          .set({
+            isActive: false,
+            lastChecked: new Date()
+          })
+          .where(eq(monitoredTelegramChats.chatId, chatId));
+      }
     }
   }
 
   async getMonitoredTelegramChats(): Promise<string[]> {
     const chats = await db
       .select()
-      .from(monitoredTelegramChats);
+      .from(monitoredTelegramChats)
+      .where(eq(monitoredTelegramChats.isActive, true));
     
     return chats.map(c => c.chatId);
   }
